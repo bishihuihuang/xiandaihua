@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>打字速度测试 - 现代化·知识学习站</title>
+<meta name="description" content="打字速度测试：中文/英文句子分级练习，限时与长文模式，实时显示字/分钟与准确率，历史成绩曲线，最佳成绩自动保存。">
+<link rel="icon" href="favicon.svg">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#667eea">
+<link rel="stylesheet" href="common.css">
+<script defer src="common.js"></script>
+<script defer src="theme.js"></script>
+<script defer src="xd-features.js"></script>
+<style>
+    /* ===== D4 打字测试专用样式（跟随全站主题变量） ===== */
+    #typingApp { width: 100%; }
+    .t-card {
+        background: var(--card-2); border: 2px solid var(--line); border-radius: 16px;
+        padding: 18px 20px; margin-top: 16px; box-shadow: 0 6px 20px rgba(0, 0, 0, .08);
+    }
+    .t-card-title { font-size: 16px; font-weight: 800; color: var(--blue); margin-bottom: 10px; }
+    .mode-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .mode-tab {
+        padding: 8px 16px; border-radius: 10px; border: 2px solid var(--line);
+        background: var(--card); color: var(--txt); cursor: pointer; font-size: 14px; font-weight: 700;
+        transition: all .2s;
+    }
+    .mode-tab.active { background: var(--btn-grad); color: #fff; border-color: transparent; }
+    .opt-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .opt-row select { flex: 1; min-width: 140px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 14px; background: var(--card); color: var(--txt); outline: none; }
+    .opt-row select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(102, 126, 234, .2); }
+    .opt-row label { font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 6px; flex: none; cursor: pointer; }
+    #targetText { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; font-size: 16px; line-height: 1.9; color: var(--txt); min-height: 90px; letter-spacing: 1px; margin-bottom: 12px; }
+    #targetText span { transition: color .1s, background .1s; }
+    #targetText span.next { background: rgba(102, 126, 234, .28); box-shadow: 0 0 0 2px var(--blue); border-radius: 3px; }
+    #targetText span.ok { color: var(--green); }
+    #targetText span.bad { color: var(--red); background: rgba(229, 57, 53, .14); border-radius: 3px; }
+    #typeInput {
+        width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+        font-size: 15px; background: var(--card); color: var(--txt); outline: none; box-sizing: border-box;
+    }
+    #typeInput:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(102, 126, 234, .2); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+    .stat { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px; }
+    .stat div { background: rgba(102, 126, 234, .08); border-radius: 10px; padding: 10px; text-align: center; }
+    .stat b { display: block; font-size: 20px; color: var(--blue); }
+    .stat span { font-size: 12px; color: var(--dim); }
+    .rank-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+    .rank-badge { padding: 6px 16px; border-radius: 20px; font-weight: 800; color: #fff; font-size: 14px; box-shadow: 0 4px 12px rgba(0, 0, 0, .2); }
+    .rank-progress { font-size: 13px; color: var(--dim); }
+    #resultMsg { margin-top: 10px; font-size: 14px; color: var(--red); font-weight: bold; }
+    #resultMsg.good { color: var(--green); }
+    .err-wrap { margin-top: 10px; display: none; }
+    .err-wrap.show { display: block; }
+    .err-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .err-item { background: rgba(229, 57, 53, .1); border: 1px solid rgba(229, 57, 53, .3); border-radius: 8px; padding: 4px 10px; font-size: 13px; color: var(--red); }
+    .err-item b { color: var(--green); }
+    .daily-card { border-style: dashed; }
+    .daily-tag { display: inline-block; background: var(--btn-grad); color: #fff; font-size: 12px; font-weight: 800; padding: 3px 12px; border-radius: 20px; }
+    .daily-tag.daily-done { background: var(--green); }
+    .daily-sentence { font-size: 15px; font-weight: 700; margin-top: 8px; line-height: 1.7; color: var(--txt); }
+    .daily-status { font-size: 12px; color: var(--dim); margin-top: 4px; }
+    .chart-wrap { margin-top: 12px; }
+    #histChart { width: 100%; height: 160px; background: rgba(102, 126, 234, .06); border-radius: 12px; }
+    .records-list { margin-top: 10px; font-size: 13px; color: var(--dim); line-height: 1.8; max-height: 120px; overflow-y: auto; }
+    .records-list div { border-bottom: 1px dashed var(--line); padding: 2px 0; }
+</style>
+</head>
+<body data-page="D4.html" data-kind="tool">
+<div class="bg-animation">
+    <div class="bg-flow-1"></div><div class="bg-flow-2"></div><div class="bg-flow-3"></div>
+    <div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div><div class="orb orb-4"></div><div class="orb orb-5"></div>
+</div>
+
+<header class="site-header">
+    <a class="home-link" href="index.html">🏠 首页</a>
+    <span class="site-title">现代化·知识学习站</span>
+    <span class="mod-badge">模块D · 键盘与快捷键</span>
+</header>
+
+<main>
+    <article class="lesson container">
+        <h1 class="lesson-title">⌨️ 打字速度测试</h1>
+        <p class="lesson-sub">模块D · 第 5 课 | 测手速 · 刷等级 · 晒成绩</p>
+
+        <div class="callout info">
+            <b>规则</b>
+            选好难度与来源，点「开始」后照着目标文本打字，可用输入框（回车提交）或直接连续输入。80% 以上准确率才算有效成绩。<b>最快 40 字/分钟解锁「打字入门」，80 字/分钟解锁「键盘大师」成就</b>；最佳成绩自动保存在本机（<code>xd_typing_best_v1</code>）。
+        </div>
+
+        <div id="typingApp">
+            <div class="t-card daily-card" id="dailyCard">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                    <span class="daily-tag" id="dailyTag">🔥 今日挑战</span>
+                    <span class="daily-status" id="dailyStatus"></span>
+                    <button class="btn btn-secondary" id="dailyUseBtn" style="margin-left:auto;">练这句</button>
+                </div>
+                <div class="daily-sentence" id="dailySentence"></div>
+            </div>
+
+            <div class="t-card">
+                <div class="t-card-title">⌨️ 打字测试</div>
+                <div class="mode-tabs" id="modeTabs">
+                    <button class="mode-tab active" data-mode="free">✍️ 自由模式</button>
+                    <button class="mode-tab" data-mode="time">⏱ 限时 60 秒</button>
+                    <button class="mode-tab" data-mode="long">📜 长文段落</button>
+                </div>
+                <div class="opt-row" id="optRow">
+                    <select id="diffSel" title="难度">
+                        <option value="easy">难度：简单</option>
+                        <option value="mid" selected>难度：中等</option>
+                        <option value="hard">难度：困难</option>
+                    </select>
+                    <select id="srcSel" title="句子来源">
+                        <option value="cn">来源：中文名句</option>
+                        <option value="en">来源：英文句子</option>
+                    </select>
+                    <label><input type="checkbox" id="soundChk" checked> 🔊 音效</label>
+                </div>
+                <div id="targetText"></div>
+                <input id="typeInput" type="text" placeholder="点击「开始」后在这里打字，完成后按回车" autocomplete="off" disabled>
+                <div class="row">
+                    <button id="startBtn" class="btn">▶ 开始</button>
+                    <button id="doneBtn" class="btn btn-secondary" disabled>🏁 完成</button>
+                    <button id="resetBtn" class="btn btn-secondary">↺ 换句</button>
+                    <button id="shareBtn" class="btn btn-secondary" disabled>📤 分享成绩</button>
+                </div>
+                <div class="stat">
+                    <div><b id="speedVal">0</b><span>字/分钟</span></div>
+                    <div><b id="accVal">0%</b><span>准确率</span></div>
+                    <div><b id="timeVal">0s</b><span>用时</span></div>
+                    <div><b id="leftVal">—</b><span>剩余</span></div>
+                </div>
+                <div class="rank-row">
+                    <span class="rank-badge" id="rankBadge" style="background:var(--dim);">青铜</span>
+                    <span class="rank-progress" id="rankProgress"></span>
+                    <span class="rank-progress" id="bestLine" style="margin-left:auto;"></span>
+                </div>
+                <div id="resultMsg"></div>
+                <div class="err-wrap" id="errWrap">
+                    <div style="font-size:13px;font-weight:700;color:var(--dim);">错字对照（前 10 个）：</div>
+                    <div class="err-list" id="errList"></div>
+                </div>
+            </div>
+
+            <div class="t-card">
+                <div class="t-card-title">📈 历史成绩 · 最近 20 次</div>
+                <div class="chart-wrap"><canvas id="histChart" width="1160" height="160"></canvas></div>
+                <div class="records-list" id="recordsList"></div>
+            </div>
+        </div>
+
+        <div class="lesson-footer" style="margin-top:24px;padding-top:14px;border-top:1px solid var(--line);color:var(--dim);font-size:13px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <span>✅ 每次有效成绩自动记录练习进度与成就</span>
+            <span>上一课：<a href="D3.html">快捷键练习器</a></span>
+        </div>
+        <nav class="lesson-nav" id="xdPrevNext" style="margin-top:14px;"><!-- JS 渲染前后页 --></nav>
+    </article>
+</main>
+
+<script>
+'use strict';
+/* ================= 数据 ================= */
+var CN_EASY = [
+    '床前明月光。', '春眠不觉晓。', '白日依山尽。', '粒粒皆辛苦。', '天涯共此时。',
+    '欲穷千里目。', '疑是地上霜。', '处处闻啼鸟。', '低头思故乡。', '更上一层楼。',
+    '海内存知己。', '会当凌绝顶。', '一览众山小。', '相逢何必曾相识。', '润物细无声。'
+];
+var CN_MID = [
+    '光阴似箭，日月如梭，珍惜当下每一天。',
+    '生活不止眼前的苟且，还有诗和远方。',
+    '纸上得来终觉浅，绝知此事要躬行。',
+    '长风破浪会有时，直挂云帆济沧海。',
+    '天下难事必作于易，天下大事必作于细。',
+    '问渠那得清如许，为有源头活水来。',
+    '海内存知己，天涯若比邻。',
+    '千里之行，始于足下；九层之台，起于累土。',
+    '路漫漫其修远兮，吾将上下而求索。',
+    '业精于勤，荒于嬉；行成于思，毁于随。',
+    '读书破万卷，下笔如有神。',
+    '宝剑锋从磨砺出，梅花香自苦寒来。',
+    '山重水复疑无路，柳暗花明又一村。',
+    '沉舟侧畔千帆过，病树前头万木春。',
+    '欲把西湖比西子，淡妆浓抹总相宜。'
+];
+var CN_HARD = [
+    '真正的平静，不是避开车马喧嚣，而是在心中修篱种菊。',
+    '所谓天才，不过是把别人喝咖啡的工夫用在了学习上。',
+    '世界上最宽阔的是海洋，比海洋更宽阔的是人的胸怀。',
+    '不登高山，不知天之高也；不临深溪，不知地之厚也。',
+    '志不强者智不达，言不信者行不果。',
+    '学而不思则罔，思而不学则殆。',
+    '知之者不如好之者，好之者不如乐之者。',
+    '三更灯火五更鸡，正是男儿读书时。',
+    '锲而舍之，朽木不折；锲而不舍，金石可镂。',
+    '博学之，审问之，慎思之，明辨之，笃行之。',
+    '穷则独善其身，达则兼济天下。',
+    '老骥伏枥，志在千里；烈士暮年，壮心不已。',
+    '千磨万击还坚劲，任尔东西南北风。',
+    '不畏浮云遮望眼，自缘身在最高层。',
+    '先天下之忧而忧，后天下之乐而乐。'
+];
+var EN_POOL = [
+    'Practice makes perfect.',
+    'Where there is a will, there is a way.',
+    'Actions speak louder than words.',
+    'Every cloud has a silver lining.',
+    'The early bird catches the worm.',
+    'Knowledge is power.',
+    'Time and tide wait for no man.',
+    'Well begun is half done.',
+    'Rome was not built in a day.',
+    'Better late than never.',
+    'The best way to predict the future is to create it.',
+    'Stay hungry, stay foolish.',
+    'Think different and dream big.',
+    'Success is the sum of small efforts repeated day in and day out.'
+];
+var LONG_POOL = [
+    '燕子去了，有再来的时候；杨柳枯了，有再青的时候；桃花谢了，有再开的时候。但是，聪明的，你告诉我，我们的日子为什么一去不复返呢？',
+    '生命的意义不在于长度，而在于深度。我们无法决定生命的起点，却可以决定如何度过每一个今天，让每一天都过得充实而有意义。',
+    '读书是一种习惯，更是一种享受。当文字在指尖流淌，当思想在脑海碰撞，你会发现自己正慢慢变得更辽阔、更从容。',
+    '科技改变生活，创新驱动未来。人工智能正在走进千家万户，为人类带来前所未有的便利，同时也提醒我们保持思考与温度。',
+    '清晨的阳光透过窗帘洒进房间，空气里飘着淡淡的咖啡香。打开笔记本，写下今天的计划，平凡的日子也要认真对待。',
+    '少壮不努力，老大徒伤悲。一寸光阴一寸金，寸金难买寸光阴。把握当下，珍惜时间，才能不负青春、不负自己。'
+];
+
+/* ================= 主题色辅助（跟随暗色/金色主题） ================= */
+var _cs = getComputedStyle(document.documentElement);
+function V(name, fb) {
+    var v = _cs.getPropertyValue(name).trim();
+    return v || fb || '#667eea';
+}
+var C_BLUE = V('--blue', '#667eea');
+var C_GREEN = V('--green', '#11998e');
+var C_RED = V('--red', '#ff6b6b');
+var C_DIM = V('--dim', '#8b93a7');
+var C_PURPLE = V('--purple', C_BLUE);
+
+/* ================= 存储（本地键统一 xd_ 前缀） ================= */
+var ZK = { best: 'xd_typing_best_v1', rec: 'xd_typing_recs_v1', daily: 'xd_typing_daily_v1', snd: 'xd_typing_sound_v1' };
+function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function todayStr() {
+    var d = new Date();
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function beep(freq, dur, vol) {
+    if (!soundOn) return;
+    try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        if (!beep._ctx) beep._ctx = new AC();
+        var ctx = beep._ctx;
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime((vol || 0.12), ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (dur || 0.05));
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + (dur || 0.05));
+    } catch (e) {}
+}
+function playDone() { beep(523, 0.12, 0.15); setTimeout(function () { beep(659, 0.12, 0.15); }, 130); setTimeout(function () { beep(784, 0.2, 0.15); }, 260); }
+
+/* ================= 等级 ================= */
+var RANKS = [
+    { n: '青铜', min: 0, bg: C_DIM },
+    { n: '白银', min: 30, bg: 'linear-gradient(135deg,' + C_DIM + ',' + V('--line', '#cfd8e3') + ')' },
+    { n: '黄金', min: 50, bg: V('--title-grad', 'linear-gradient(135deg,#ffd54f,#f9a825)') },
+    { n: '铂金', min: 70, bg: V('--back-grad', 'linear-gradient(135deg,#80deea,#0097a7)') },
+    { n: '钻石', min: 90, bg: V('--btn-grad', 'linear-gradient(135deg,#b39ddb,#5e35b1)') },
+    { n: '王者', min: 120, bg: 'linear-gradient(135deg,' + C_BLUE + ',' + C_PURPLE + ')' }
+];
+function levelOf(wpm) {
+    for (var i = RANKS.length - 1; i >= 0; i--) { if (wpm >= RANKS[i].min) return RANKS[i]; }
+    return RANKS[0];
+}
+
+/* ================= DOM 引用 ================= */
+var targetText = document.getElementById('targetText');
+var typeInput = document.getElementById('typeInput');
+var startBtn = document.getElementById('startBtn');
+var doneBtn = document.getElementById('doneBtn');
+var resetBtn = document.getElementById('resetBtn');
+var shareBtn = document.getElementById('shareBtn');
+var speedVal = document.getElementById('speedVal');
+var accVal = document.getElementById('accVal');
+var timeVal = document.getElementById('timeVal');
+var leftVal = document.getElementById('leftVal');
+var bestLine = document.getElementById('bestLine');
+var resultMsg = document.getElementById('resultMsg');
+var errWrap = document.getElementById('errWrap');
+var errList = document.getElementById('errList');
+var rankBadge = document.getElementById('rankBadge');
+var rankProgress = document.getElementById('rankProgress');
+var diffSel = document.getElementById('diffSel');
+var srcSel = document.getElementById('srcSel');
+var soundChk = document.getElementById('soundChk');
+var histChart = document.getElementById('histChart');
+var recordsList = document.getElementById('recordsList');
+var dailySentence = document.getElementById('dailySentence');
+var dailyStatus = document.getElementById('dailyStatus');
+var dailyTag = document.getElementById('dailyTag');
+var dailyUseBtn = document.getElementById('dailyUseBtn');
+
+var current = '';
+var currentSrc = '中文名句';
+var mode = 'free';
+var diff = 'mid';
+var src = 'cn';
+var startTime = 0;
+var running = false;
+var timerId = null;
+var limitSec = 60;
+var limitLeft = 60;
+var lastResult = null;
+var soundOn = true;
+
+/* ================= 等级显示 ================= */
+function loadBest() {
+    var best = lsGet(ZK.best) || 0;
+    var lv = levelOf(best);
+    rankBadge.textContent = lv.n;
+    rankBadge.style.background = lv.bg;
+    var next = null;
+    for (var i = 0; i < RANKS.length; i++) { if (RANKS[i].min > best) { next = RANKS[i]; break; } }
+    rankProgress.textContent = next ? ('距「' + next.n + '」还需 ' + (next.min - best) + ' 字/分钟') : '已达最高等级 👑';
+    bestLine.textContent = best > 0 ? '🏆 历史最佳：' + best + ' 字/分钟' : '暂无最佳成绩，快去创造纪录！';
+}
+
+/* ================= 句子 ================= */
+function poolFor(src2, diff2) {
+    if (src2 === 'en') return EN_POOL;
+    if (diff2 === 'easy') return CN_EASY;
+    if (diff2 === 'hard') return CN_HARD;
+    return CN_MID;
+}
+function pickSentence() {
+    var t;
+    if (mode === 'long') { t = pick(LONG_POOL); currentSrc = '长文段落'; }
+    else {
+        var p = poolFor(src, diff);
+        t = pick(p);
+        currentSrc = src === 'en' ? '英文句子' : ('中文名句·' + (diff === 'easy' ? '简单' : diff === 'hard' ? '困难' : '中等'));
+    }
+    current = t;
+    return t;
+}
+function renderText() {
+    var html = '';
+    for (var i = 0; i < current.length; i++) {
+        html += '<span data-i="' + i + '">' + (current[i] === ' ' ? '&nbsp;' : current[i]) + '</span>';
+    }
+    targetText.innerHTML = html;
+    var sp = targetText.querySelectorAll('span');
+    if (sp.length) sp[0].className = 'next';
+}
+
+/* ================= 每日挑战 ================= */
+function dailyPick() {
+    var seed = todayStr();
+    var h = 0;
+    for (var i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+    var pool = CN_EASY.concat(CN_MID, CN_HARD);
+    return pool[h % pool.length];
+}
+function renderDaily() {
+    var t = dailyPick();
+    dailySentence.textContent = t;
+    if (lsGet(ZK.daily) === todayStr()) {
+        dailyTag.textContent = '✅ 今日已完成';
+        dailyTag.classList.add('daily-done');
+        dailyStatus.textContent = '今天的挑战句已完成，明天再来～';
+        dailyUseBtn.disabled = true;
+    } else {
+        dailyTag.textContent = '🔥 今日挑战';
+        dailyStatus.textContent = '练完这句（准确率 ≥85%）即完成今日挑战';
+        dailyUseBtn.disabled = false;
+    }
+}
+
+/* ================= 流程 ================= */
+function newSentence() {
+    if (timerId) { clearInterval(timerId); timerId = null; }
+    running = false;
+    startTime = 0;
+    limitLeft = limitSec;
+    pickSentence();
+    renderText();
+    typeInput.value = '';
+    typeInput.disabled = false;
+    resultMsg.textContent = '';
+    resultMsg.className = '';
+    errWrap.classList.remove('show');
+    errList.innerHTML = '';
+    shareBtn.disabled = true;
+    lastResult = null;
+    timeVal.textContent = '0s';
+    speedVal.textContent = '0';
+    accVal.textContent = '0%';
+    leftVal.textContent = mode === 'time' ? limitLeft + 's' : '—';
+    startBtn.textContent = '▶ 开始';
+    startBtn.disabled = false;
+    doneBtn.disabled = true;
+    typeInput.placeholder = '点击「开始」后在这里打字';
+}
+
+function startRun() {
+    if (running) {
+        running = false;
+        if (timerId) { clearInterval(timerId); timerId = null; }
+        startBtn.textContent = '▶ 继续';
+        return;
+    }
+    running = true;
+    if (!startTime) startTime = Date.now();
+    typeInput.placeholder = '开始打字吧，完成后按回车或点「完成」';
+    startBtn.textContent = '⏸ 暂停';
+    doneBtn.disabled = false;
+    typeInput.focus();
+    if (mode === 'time') {
+        limitLeft = limitSec;
+        leftVal.textContent = limitLeft + 's';
+        if (timerId) clearInterval(timerId);
+        timerId = setInterval(function () {
+            limitLeft--;
+            leftVal.textContent = limitLeft + 's';
+            if (limitLeft <= 0) finish();
+        }, 1000);
+    } else {
+        if (timerId) clearInterval(timerId);
+        timerId = setInterval(function () {
+            timeVal.textContent = Math.floor((Date.now() - startTime) / 1000) + 's';
+        }, 500);
+    }
+}
+
+var badBeeped = false;
+function updateInput() {
+    if (!running) return;
+    var v = typeInput.value;
+    var spans = targetText.querySelectorAll('span');
+    var allOk = true;
+    for (var i = 0; i < spans.length; i++) {
+        spans[i].className = '';
+        if (i < v.length) {
+            if (v[i] === current[i]) { spans[i].className = 'ok'; }
+            else { spans[i].className = 'bad'; allOk = false; if (!badBeeped) { beep(330, 0.05, 0.08); badBeeped = true; } }
+        }
+    }
+    if (v.length > 0 && v[v.length - 1] === current[v.length - 1]) beep(660, 0.03, 0.06);
+    badBeeped = v.length > 0 && v[v.length - 1] !== current[v.length - 1];
+    if (v.length < spans.length) spans[v.length].className = 'next';
+    if (allOk && v.length >= spans.length) finish();
+}
+
+function finish() {
+    if (!running && !startTime) return;
+    if (timerId) { clearInterval(timerId); timerId = null; }
+    running = false;
+    var v = typeInput.value;
+    var secs = Math.max((Date.now() - startTime) / 1000, 0.1);
+    var minutes = Math.max(secs / 60, 0.001);
+    var correct = 0;
+    var errors = [];
+    for (var i = 0; i < Math.min(v.length, current.length); i++) {
+        if (v[i] === current[i]) { correct++; }
+        else { if (errors.length < 10) errors.push({ in: v[i], want: current[i] }); }
+    }
+    if (v.length < current.length && v.length > 0 && errors.length < 10) {
+        errors.push({ in: '（漏打）', want: current.slice(v.length, v.length + 1) });
+    }
+    var totalTyped = Math.max(v.length, 1);
+    var acc = Math.round(correct / totalTyped * 100);
+    var wpm = Math.round((correct / 5) / minutes);
+    timeVal.textContent = Math.round(secs) + 's';
+    accVal.textContent = acc + '%';
+    speedVal.textContent = wpm;
+    leftVal.textContent = mode === 'time' ? '0s' : '—';
+    doneBtn.disabled = true;
+    startBtn.textContent = '▶ 开始';
+    resultMsg.className = acc >= 85 ? 'good' : '';
+    resultMsg.textContent = '本次速度 ' + wpm + ' 字/分钟，准确率 ' + acc + '%' + (acc >= 85 ? ' 🎉' : '，继续加油！');
+    if (acc >= 85) {
+        var best = lsGet(ZK.best) || 0;
+        if (wpm > best) { lsSet(ZK.best, wpm); loadBest(); resultMsg.textContent += ' 刷新最佳成绩！🏆'; }
+        if (window.XD && XD.achieve) {
+            if (wpm >= 80) XD.achieve.unlock('typing_80');
+            if (wpm >= 40) XD.achieve.unlock('typing_40');
+        }
+        if (window.XD && XD.studyLog) XD.studyLog.add({ type: 'practice', itemId: 'D4', mod: 'D' });
+    }
+    var recs = lsGet(ZK.rec) || [];
+    recs.unshift({ w: wpm, a: acc, s: Math.round(secs), d: todayStr(), m: mode, src: currentSrc });
+    lsSet(ZK.rec, recs.slice(0, 20));
+    renderRecords(); drawChart();
+    errList.innerHTML = '';
+    if (errors.length) {
+        errors.forEach(function (e) {
+            var d = document.createElement('span');
+            d.className = 'err-item';
+            d.innerHTML = '输「' + e.in + '」应为 <b>「' + e.want + '」</b>';
+            errList.appendChild(d);
+        });
+        errWrap.classList.add('show');
+    }
+    if (mode === 'free' && current === dailyPick() && acc >= 85 && lsGet(ZK.daily) !== todayStr()) {
+        lsSet(ZK.daily, todayStr());
+        renderDaily();
+        resultMsg.textContent += ' ✅ 今日挑战完成！';
+    }
+    lastResult = { wpm: wpm, acc: acc, secs: Math.round(secs), mode: mode };
+    shareBtn.disabled = false;
+    playDone();
+}
+
+/* ================= 历史 ================= */
+function renderRecords() {
+    var recs = lsGet(ZK.rec) || [];
+    recordsList.innerHTML = '';
+    if (!recs.length) { recordsList.textContent = '还没有历史记录，快去测一次吧～'; return; }
+    recs.slice(0, 10).forEach(function (r) {
+        var d = document.createElement('div');
+        d.textContent = r.d + ' ｜ ' + r.w + ' 字/分钟 ｜ 准确率 ' + r.a + '% ｜ ' + r.s + 's ｜ ' + (r.m === 'time' ? '限时' : r.m === 'long' ? '长文' : '自由') + ' ｜ ' + (r.src || '');
+        recordsList.appendChild(d);
+    });
+}
+function drawChart() {
+    var c = histChart;
+    var ctx = c.getContext('2d');
+    // 无 Canvas 环境（少数内嵌浏览器）只跳过绘图，历史数据本身不受影响
+    if (!ctx) { if (c.parentNode) c.parentNode.style.display = 'none'; return; }
+    var W = c.width, H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    var recs = lsGet(ZK.rec) || [];
+    if (!recs.length) {
+        ctx.fillStyle = C_DIM;
+        ctx.font = '14px "Microsoft YaHei"';
+        ctx.textAlign = 'center';
+        ctx.fillText('暂无数据，测一次就会出现在这里', W / 2, H / 2);
+        return;
+    }
+    var data = recs.slice(0, 20).reverse().map(function (r) { return r.w; });
+    var max = Math.max.apply(null, data.concat([20]));
+    var n = data.length;
+    ctx.strokeStyle = 'rgba(102,126,234,.15)';
+    ctx.lineWidth = 1;
+    for (var g = 0; g <= 4; g++) {
+        var gy = H - (g / 4) * (H - 30) - 15;
+        ctx.beginPath(); ctx.moveTo(30, gy); ctx.lineTo(W - 10, gy); ctx.stroke();
+        ctx.fillStyle = C_DIM; ctx.font = '10px "Microsoft YaHei"'; ctx.textAlign = 'left';
+        ctx.fillText(String(Math.round(max * g / 4)), 4, gy + 3);
+    }
+    ctx.strokeStyle = C_BLUE;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (var i = 0; i < n; i++) {
+        var x = 30 + (W - 50) * (n === 1 ? 0.5 : i / (n - 1));
+        var y = H - (data[i] / max) * (H - 40) - 15;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    for (var j = 0; j < n; j++) {
+        var x2 = 30 + (W - 50) * (n === 1 ? 0.5 : j / (n - 1));
+        var y2 = H - (data[j] / max) * (H - 40) - 15;
+        ctx.beginPath();
+        ctx.arc(x2, y2, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = C_PURPLE;
+        ctx.fill();
+    }
+}
+
+/* ================= 分享卡 ================= */
+function shareCard() {
+    if (!lastResult) return;
+    var lv = levelOf(lastResult.wpm);
+    var c = document.createElement('canvas');
+    c.width = 640; c.height = 360;
+    var ctx = c.getContext('2d');
+    // 无 Canvas 环境生成不了图片卡，降级为只复制成绩文案
+    var txt = '我在「现代化·知识学习站」打字测试打出 ' + lastResult.wpm + ' 字/分钟（准确率 ' + lastResult.acc + '%），等级 ' + lv.n + '，快来挑战我！';
+    if (!ctx) {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(function () { copyFallback(txt); });
+        else copyFallback(txt);
+        resultMsg.textContent = '成绩文案已复制 📋（当前环境不支持生成图片卡）';
+        return;
+    }
+    var g = ctx.createLinearGradient(0, 0, 640, 360);
+    g.addColorStop(0, C_BLUE); g.addColorStop(0.5, C_PURPLE); g.addColorStop(1, V('--red', '#f093fb'));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 640, 360);
+    ctx.fillStyle = 'rgba(255,255,255,.12)';
+    ctx.beginPath(); ctx.arc(560, 60, 120, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(80, 320, 90, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 30px "Microsoft YaHei"';
+    ctx.textAlign = 'center';
+    ctx.fillText('⌨️ 现代化·知识学习站 · 打字测试', 320, 56);
+    ctx.font = 'bold 88px "Segoe UI"';
+    ctx.fillText(String(lastResult.wpm), 320, 190);
+    ctx.font = '24px "Microsoft YaHei"';
+    ctx.fillText('字/分钟', 320, 226);
+    ctx.font = '22px "Microsoft YaHei"';
+    ctx.fillText('准确率 ' + lastResult.acc + '% ｜ 用时 ' + lastResult.secs + 's ｜ 等级 ' + lv.n, 320, 276);
+    ctx.fillText(todayStr() + ' · bishihuihuang.github.io/xiandaihua', 320, 316);
+    var url = c.toDataURL('image/png');
+    var w = window.open('');
+    if (w) {
+        var img = w.document.createElement('img');
+        img.style.maxWidth = '100%';
+        img.setAttribute('src', url);
+        w.document.body.appendChild(img);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).catch(function () { copyFallback(txt); });
+    } else { copyFallback(txt); }
+    resultMsg.textContent = '成绩卡已生成（新窗口），文案已复制 📋';
+}
+function copyFallback(txt) {
+    var ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e2) {}
+    document.body.removeChild(ta);
+}
+
+/* ================= 事件 ================= */
+document.querySelectorAll('.mode-tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+        document.querySelectorAll('.mode-tab').forEach(function (x) { x.classList.remove('active'); });
+        t.classList.add('active');
+        mode = t.getAttribute('data-mode');
+        optRow.style.display = mode === 'long' ? 'none' : '';
+        newSentence();
+    });
+});
+diffSel.addEventListener('change', function () { diff = diffSel.value; newSentence(); });
+srcSel.addEventListener('change', function () { src = srcSel.value; newSentence(); });
+soundChk.addEventListener('change', function () { soundOn = soundChk.checked; lsSet(ZK.snd, soundOn ? '1' : '0'); });
+startBtn.addEventListener('click', startRun);
+doneBtn.addEventListener('click', finish);
+typeInput.addEventListener('input', updateInput);
+typeInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); finish(); } });
+resetBtn.addEventListener('click', newSentence);
+shareBtn.addEventListener('click', shareCard);
+dailyUseBtn.addEventListener('click', function () {
+    mode = 'free';
+    document.querySelectorAll('.mode-tab').forEach(function (x) { x.classList.remove('active'); });
+    document.querySelector('.mode-tab[data-mode="free"]').classList.add('active');
+    optRow.style.display = '';
+    if (timerId) { clearInterval(timerId); timerId = null; }
+    running = false;
+    startTime = 0;
+    current = dailyPick();
+    currentSrc = '今日挑战';
+    renderText();
+    typeInput.value = '';
+    typeInput.disabled = false;
+    resultMsg.textContent = '';
+    resultMsg.className = '';
+    errWrap.classList.remove('show');
+    errList.innerHTML = '';
+    shareBtn.disabled = true;
+    timeVal.textContent = '0s'; speedVal.textContent = '0'; accVal.textContent = '0%';
+    leftVal.textContent = '—';
+    startBtn.textContent = '▶ 开始';
+    startBtn.disabled = false;
+    doneBtn.disabled = true;
+    typeInput.placeholder = '点击「开始」后在这里打字';
+});
+
+/* ================= 初始化 ================= */
+var snd = lsGet(ZK.snd);
+soundOn = snd === null ? true : snd === '1';
+soundChk.checked = soundOn;
+loadBest();
+renderDaily();
+newSentence();
+renderRecords();
+drawChart();
+</script>
+</body>
+</html>

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>现代化·知识学习站 - 从零学会计算机、AI、Git 与网页开发</title>
+<meta name="description" content="面向初学者的现代化知识学习站：计算机基础、电脑详细使用、网络与服务器、键盘快捷键练习、如何使用 AI、Git 配置与 GitHub 上传网页、Web 开发入门。模块化目录层层深入，全部免费、可离线。">
+<link rel="icon" href="favicon.svg">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#667eea">
+<link rel="stylesheet" href="common.css">
+<script defer src="common.js"></script>
+<script defer src="theme.js"></script>
+<script defer src="xd-features.js"></script>
+</head>
+<body data-page="index.html" data-kind="dir">
+<div class="bg-animation">
+    <div class="bg-flow-1"></div><div class="bg-flow-2"></div><div class="bg-flow-3"></div>
+    <div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div><div class="orb orb-4"></div><div class="orb orb-5"></div>
+</div>
+
+<header class="site-header">
+    <a class="home-link" href="index.html">🏠 首页</a>
+    <span class="site-title">现代化·知识学习站</span>
+    <span class="mod-badge">免费 · 可离线 · 零广告</span>
+</header>
+
+<main>
+    <div class="container">
+        <section class="hero">
+            <div class="hero-title">现代化·知识学习站</div>
+            <div class="hero-sub">从零开始，掌握这个时代的数字生存技能：电脑、网络、AI、Git 与网页开发</div>
+            <div class="hero-stats">
+                <span class="badge">🗂 14 大模块 · 子模块层层深入</span>
+                <span class="badge">📝 13 套测验 + 考后解析</span>
+                <span class="badge">⚡ 9 个互动工具</span>
+                <span class="badge">🏅 26 枚成就 · XP 升级</span>
+            </div>
+            <div class="today-stats" id="todayStats"><!-- JS 渲染今日统计 --></div>
+        </section>
+
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="搜索课程，例如：DNS、快捷键、commit…（或按 / 键唤起）">
+            <button class="btn" id="searchBtn">🔍 搜索</button>
+        </div>
+
+        <section class="home-dash">
+            <div id="homeLevel"><!-- JS 渲染等级卡 --></div>
+            <div class="ring" id="progRing" style="--sz:110px;"><span class="ring-txt" id="progTxt">0%</span></div>
+            <div class="dash-mid">
+                <b style="font-size:16px;">我的学习进度</b>
+                <p style="font-size:13.5px;color:var(--dim);margin:4px 0 8px;">读完任意一篇图文课，对应模块的进度条就会往上涨；14 个模块全部 100%，就是毕业之时。</p>
+                <div class="progress-bar"><div class="fill" id="progFill" style="width:0%;"></div></div>
+                <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+                    <a class="btn green" href="1.html">🗂 全站目录树</a>
+                    <a class="btn ghost" href="41.html">📊 学习仪表盘</a>
+                </div>
+            </div>
+            <div id="continueCard"><!-- JS 渲染继续学习卡 --></div>
+        </section>
+
+        <h2 style="margin:26px 0 6px;">十四大模块</h2>
+        <p style="color:var(--dim);font-size:13.5px;margin-bottom:10px;">建议按 A → N 顺序学习；每个模块点进去都有细分的子模块目录。</p>
+        <div class="card-grid" id="modGrid"><!-- JS 渲染 --></div>
+
+        <h2 style="margin:26px 0 6px;">学习系统</h2>
+        <div class="card-grid">
+            <a class="card" href="1.html"><span class="icon">🗂️</span><b>全站目录树</b><span>所有模块与子模块一览</span></a>
+            <a class="card" href="41.html"><span class="icon">📊</span><b>学习仪表盘</b><span>进度、连续天数、成绩聚合</span></a>
+            <a class="card" href="42.html"><span class="icon">🏅</span><b>成就徽章墙</b><span>26 枚成就等你解锁</span></a>
+            <a class="card" href="43.html"><span class="icon">✏️</span><b>测验中心与错题本</b><span>13 套测验入口 + 错题复习</span></a>
+            <a class="card" href="D3.html"><span class="icon">⚡</span><b>快捷键练习器</b><span>招牌交互：真实按键判定训练</span></a>
+            <a class="card" href="D4.html"><span class="icon">⌨️</span><b>打字速度测试</b><span>中英文测速、准确率统计</span></a>
+            <a class="card" href="SYS4.html"><span class="icon">🧭</span><b>生活场景速查</b><span>按生活问题直达教程</span></a>
+            <a class="card" href="SYS5.html"><span class="icon">📖</span><b>术语词典</b><span>看不懂的词点一下就有大白话解释</span></a>
+            <a class="card" href="SYS6.html"><span class="icon">🎓</span><b>毕业证书</b><span>学完十四大模块，领取你的证书</span></a>
+        </div>
+
+        <h2 style="margin:26px 0 6px;">关于本站</h2>
+        <p style="font-size:14.5px;">纯 HTML/CSS/JS 手写，零框架零依赖，源码明码可读——本站自己就是<a href="G5.html">《调试与 F12 开发者工具》</a>一课的活教材。支持添加到主屏幕离线使用（PWA）。想知道"这个网站是怎么做出来、怎么发布到网上的"？<a href="F5.html">第 F5 节手把手教你</a>。</p>
+        <p style="font-size:13px;color:var(--dim);margin-top:10px;">🎨 右下角可切换 10 套主题 · 👁 左下角欣赏模式 · 按 <kbd>/</kbd> 全站搜索 · <a href="45.html">使用指南</a> · <a href="46.html">免责声明</a></p>
+    </div>
+</main>
+
+<script>
+(function () {
+    document.addEventListener('DOMContentLoaded', function () {
+        var si = document.getElementById('searchInput');
+        var sb = document.getElementById('searchBtn');
+        if (si) si.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && window.XD && XD.search) XD.search.open();
+        });
+        if (sb) sb.addEventListener('click', function () {
+            if (window.XD && XD.search) XD.search.open();
+        });
+
+        if (!window.XD) return;
+
+        // 等级卡（XP 等级 + 经验条）
+        var lv = XD.game.level();
+        var lvBox = document.getElementById('homeLevel');
+        if (lvBox) lvBox.innerHTML =
+            '<div class="lv-card"><div class="lv-head">' +
+            '<span class="lv-badge">Lv' + lv.lv + ' · ' + XD.escapeHtml(lv.t) + '</span>' +
+            '<span class="lv-xp">' + lv.xp + ' XP</span></div>' +
+            '<div class="xp-bar"><i style="width:' + lv.pct + '%;"></i></div>' +
+            '<div class="lv-next">' + (lv.nextT ? '距「' + XD.escapeHtml(lv.nextT) + '」还差 ' + (lv.next - lv.xp) + ' XP' : '🎉 已达最高等级') + '</div></div>';
+
+        // 今日统计：今日学习 / 连续天数 / 已读页数 / 徽章数（全部从现有存储实时推导）
+        var ts = document.getElementById('todayStats');
+        if (ts) {
+            var achN = 0, aList = XD.achieve.list();
+            for (var a = 0; a < aList.length; a++) if (aList[a].at) achN++;
+            ts.innerHTML =
+                '<span class="badge">📆 今日学习 ' + XD.studyLog.todayCount() + ' 次</span>' +
+                '<span class="badge">🔥 连续 ' + XD.studyLog.streakDays() + ' 天</span>' +
+                '<span class="badge">📖 已读 ' + XD.progress.count() + ' 页</span>' +
+                '<span class="badge">🏅 徽章 ' + achN + '/' + XD.ACHIEVEMENTS.length + ' 枚</span>';
+        }
+
+        // 进度环
+        var pct = XD.progress.overall();
+        var ring = document.getElementById('progRing');
+        if (ring) ring.style.setProperty('--p', pct);
+        var pt = document.getElementById('progTxt');
+        if (pt) pt.textContent = pct + '%';
+        var pf = document.getElementById('progFill');
+        if (pf) pf.style.width = pct + '%';
+
+        // 继续学习卡：取 xd_read_v1 里最近读过的页面
+        var cc = document.getElementById('continueCard');
+        if (cc) {
+            var all = XD.progress.all();
+            var bestF = '', bestAt = 0;
+            for (var k in all) {
+                if (Object.prototype.hasOwnProperty.call(all, k) && all[k] > bestAt) { bestAt = all[k]; bestF = k; }
+            }
+            if (!bestF) {
+                cc.innerHTML = '<div class="card cont-card"><b>⏩ 继续学习</b>' +
+                    '<span>还没有学习记录——从下面任意一个模块开始，点进去随便读一课就好。</span>' +
+                    '<a class="btn" href="A.html">从模块 A 开始 →</a></div>';
+            } else {
+                var lastTitle = bestF;
+                for (var j = 0; j < XD.PAGES.length; j++) {
+                    if (XD.PAGES[j].f === bestF) { lastTitle = XD.PAGES[j].t; break; }
+                }
+                var mid = bestF.replace(/\.html$/, ''), modTxt = '';
+                var topM = mid.charAt(0).toUpperCase();
+                var modN = XD.node(topM);
+                if (modN) modTxt = '模块' + topM + ' · ' + XD.escapeHtml(modN.n);
+                cc.innerHTML = '<div class="card cont-card"><b>⏩ 继续学习</b>' +
+                    '<span>上次学到：<b>' + XD.escapeHtml(lastTitle) + '</b>' +
+                    (modTxt ? '<br><span style="font-size:12px;">' + modTxt + '</span>' : '') + '</span>' +
+                    '<a class="btn" href="' + bestF + '">接着学 →</a></div>';
+            }
+        }
+
+        // 模块卡片（一级目录）
+        var grid = document.getElementById('modGrid');
+        if (!grid) return;
+        var html = '';
+        for (var i = 0; i < XD.TREE.length; i++) {
+            var mod = XD.TREE[i];
+            if ('SYS SITE'.indexOf(mod.id) >= 0 && mod.id.length > 1) continue;
+            var p = XD.progress.nodeProgress(mod);
+            html += '<a class="module-card" href="' + mod.f + '">' +
+                '<span class="tag">' + (p === 100 ? '✅' : p + '%') + '</span>' +
+                '<div class="mod-head"><span style="font-size:30px;">' + mod.icon + '</span><span class="mod-no">模块' + mod.id + '</span></div>' +
+                '<b>' + XD.escapeHtml(mod.n) + '</b>' +
+                '<span>' + XD.escapeHtml(mod.d || '') + '</span>' +
+                '<ul><li>' + (mod.children ? mod.children.length + ' 个子模块' : '') + ' · 共 ' + XD.leafCount(mod) + ' 页内容</li>' +
+                '<li>' + (p === 100 ? '<span class="done-flag">✅ 已完成</span>' : p > 0 ? '进行中 ' + p + '%' : '未开始') + '</li></ul>' +
+                '</a>';
+        }
+        grid.innerHTML = html;
+    });
+})();
+</script>
+</body>
+</html>
