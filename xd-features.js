@@ -270,7 +270,9 @@
         }
     })(XD.TREE, []);
 
-    XD.PAGES = []; // 搜索用：仅叶子节点；站点地图/SW 与构建脚本由 TREE 另生成
+    /* ========== 叶子页索引 XD.PAGES（搜索/前后页用） ========== */
+    /* 仅收录叶子节点（图文课/测验/工具页）；站点地图/SW 与构建脚本由 TREE 另生成 */
+    XD.PAGES = [];
     (function () {
         for (var i = 0; i < XD._flat.length; i++) {
             var nd = XD._flat[i];
@@ -304,8 +306,11 @@
         return out;
     };
 
-    /* ========== 学习进度层 xd_read_v1 ========== */
-    // 读一页记一页：键 = 文件名，值 = 阅读时间戳；进度分母 = 十四大模块全部叶子页
+    /* ============================================================
+     * 学习进度 XD.progress（xd_read_v1）
+     * 读一页记一页：键 = 文件名，值 = 阅读时间戳；
+     * 进度分母 = 十四大模块全部叶子页（SYS/SITE 不计入）
+     * ============================================================ */
     (function () {
         var KEY = 'xd_read_v1';
         function read() { return LS(KEY) || {}; }
@@ -415,29 +420,44 @@
         box.innerHTML = html;
     };
 
-    /* ========== 学习日志 xd_study_log_v1（供仪表盘聚合） ========== */
+    /* ============================================================
+     * 学习日志 XD.studyLog（xd_study_log_v1，供仪表盘聚合）
+     * 每条记录：{ type, itemId, mod, at }；越界自动裁剪，读取永不抛错
+     * ============================================================ */
     (function () {
         var KEY = 'xd_study_log_v1';
         var MAX = 500;
-        function rd() {
-            try { var a = JSON.parse(localStorage.getItem(KEY)); if (Object.prototype.toString.call(a) === '[object Array]') return a; } catch (e) {}
+
+        /* ---- 存储层：读入与写回（损坏数据视为空数组） ---- */
+        function readLog() {
+            try {
+                var a = JSON.parse(localStorage.getItem(KEY));
+                if (Object.prototype.toString.call(a) === '[object Array]') return a;
+            } catch (e) {}
             return [];
         }
-        function wr(a) {
+        function writeLog(a) {
             if (a.length > MAX) a = a.slice(a.length - MAX);
             try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {}
             return a;
         }
+
+        /* ---- 日期键：本地时区 Y-M-D ---- */
+        function dayKey(ts) {
+            var d = new Date(ts);
+            return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+        }
+
         XD.studyLog = {
             add: function (entry) {
-                var a = rd();
+                var a = readLog();
                 a.push({ type: entry.type || 'read', itemId: entry.itemId == null ? '' : String(entry.itemId), mod: entry.mod || '', at: entry.at || Date.now() });
-                wr(a);
+                writeLog(a);
                 XD.emit('study.recorded', a[a.length - 1]);
             },
-            recent: function (n) { var a = rd(); return n ? a.slice(-n) : a; },
+            recent: function (n) { var a = readLog(); return n ? a.slice(-n) : a; },
             todayCount: function () {
-                var a = rd(), now = new Date(), c = 0;
+                var a = readLog(), now = new Date(), c = 0;
                 for (var i = 0; i < a.length; i++) {
                     var d = new Date(a[i].at);
                     if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) c++;
@@ -445,50 +465,52 @@
                 return c;
             },
             streakDays: function () {
-                var a = rd(), days = {};
-                for (var i = 0; i < a.length; i++) {
-                    var d = new Date(a[i].at);
-                    days[d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate()] = 1;
-                }
+                var a = readLog(), days = {};
+                for (var i = 0; i < a.length; i++) days[dayKey(a[i].at)] = 1;
                 var now = new Date(), n = 0, cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                function key(d) { return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
-                if (!days[key(cur)]) cur.setDate(cur.getDate() - 1);
-                while (days[key(cur)]) { n++; cur.setDate(cur.getDate() - 1); }
+                if (!days[dayKey(cur.getTime())]) cur.setDate(cur.getDate() - 1);
+                while (days[dayKey(cur.getTime())]) { n++; cur.setDate(cur.getDate() - 1); }
                 return n;
             },
             heatmap: function (nDays) {
-                var a = rd(), out = [], now = new Date(), counts = {};
-                for (var i = 0; i < a.length; i++) {
-                    var d = new Date(a[i].at);
-                    var k = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-                    counts[k] = (counts[k] || 0) + 1;
-                }
+                var a = readLog(), out = [], now = new Date(), counts = {};
+                for (var i = 0; i < a.length; i++) { var k = dayKey(a[i].at); counts[k] = (counts[k] || 0) + 1; }
                 for (var j = nDays - 1; j >= 0; j--) {
                     var day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - j);
-                    var key = day.getFullYear() + '-' + (day.getMonth() + 1) + '-' + day.getDate();
-                    out.push({ d: key, c: counts[key] || 0 });
+                    out.push({ d: dayKey(day.getTime()), c: counts[dayKey(day.getTime())] || 0 });
                 }
                 return out;
             }
         };
     })();
 
-    /* ========== 测验引擎 xd_quiz_v1 + 错题本 xd_err_items_v1 ========== */
+    /* ============================================================
+     * 测验引擎 XD.quiz（xd_quiz_v1 成绩 + xd_err_items_v1 错题本）
+     * run()：渲染题目 → 点击即判 → 结算落成绩 → 考后解析报告；
+     * 做错题自动进错题本；首次完成或刷新最高分时才发经验。
+     * ============================================================ */
     (function () {
-        var QKEY = 'xd_quiz_v1';
-        var EKEY = 'xd_err_items_v1';
-        function results() { return LS(QKEY) || {}; }
+        var QUIZ_KEY = 'xd_quiz_v1';
+        var ERR_KEY = 'xd_err_items_v1';
+
+        /* ---- 成绩存取 ---- */
+        function readResults() { return LS(QUIZ_KEY) || {}; }
+
         XD.quiz = {
-            results: results,
-            getResult: function (id) { return results()[id] || null; },
-            errItems: function () { return LS(EKEY) || []; },
+            results: readResults,
+            getResult: function (id) { return readResults()[id] || null; },
+
+            /* ---- 错题本 ---- */
+            errItems: function () { return LS(ERR_KEY) || []; },
             removeErr: function (qid) {
                 var a = XD.quiz.errItems();
                 var b = a.filter(function (x) { return x.qid !== qid; });
-                SS(EKEY, b);
+                SS(ERR_KEY, b);
                 XD.emit('errbook.changed', {});
             },
-            clearErr: function () { SS(EKEY, []); XD.emit('errbook.changed', {}); },
+            clearErr: function () { SS(ERR_KEY, []); XD.emit('errbook.changed', {}); },
+
+            /* ---- 试炼主流程：渲染 → 交互判定 → 结算 ---- */
             run: function (containerId, cfg) {
                 var box = document.getElementById(containerId);
                 if (!box || !cfg || !cfg.questions || !cfg.questions.length) return;
@@ -533,20 +555,21 @@
                     if (!ok) {
                         var errs = XD.quiz.errItems();
                         errs.push({ qid: cfg.id + '-Q' + (qi + 1), quizId: cfg.id, quizTitle: cfg.title || '', q: q.q, opts: q.opts, a: q.a, exp: q.exp || '', at: Date.now() });
-                        SS(EKEY, errs);
+                        SS(ERR_KEY, errs);
                     }
                     if (state.answered === qs.length) finish();
                 });
 
+                /* ---- 结算：成绩入库（仅刷新最高分）+ 埋学习记录 + 错题报告 ---- */
                 function finish() {
                     var score = Math.round(state.right / qs.length * 100);
                     var r = box.querySelector('[data-r]');
-                    var all = results();
+                    var all = readResults();
                     var prev = all[cfg.id];
                     var improved = !prev || score > prev.score;
                     if (improved) {
                         all[cfg.id] = { score: score, right: state.right, total: qs.length, at: Date.now() };
-                        SS(QKEY, all);
+                        SS(QUIZ_KEY, all);
                     }
                     XD.studyLog.add({ type: 'quiz', itemId: cfg.id, mod: cfg.id });
                     XD.emit('quiz.done', { id: cfg.id, score: score, right: state.right, total: qs.length, improved: improved });
@@ -698,10 +721,14 @@
         };
     })();
 
-    /* ========== 游戏化：XP 经验 / 等级 / 每日任务 ========== */
+    /* ============================================================
+     * 游戏化 XD.game（xd_xp_v1 经验 + xd_daily_v1 每日任务）
+     * 经验表 12 级（0→3600 XP）；每日任务完成态实时从学习记录推导，
+     * 只记录"已领取"，不额外落完成标记
+     * ============================================================ */
     (function () {
-        var KEY = 'xd_xp_v1';        // { xp: n, log: [{n, why, at}] }
-        var DKEY = 'xd_daily_v1';    // { date: 'Y-M-D', claimed: {t1:1,...} } 仅记录已领取，完成态实时推导
+        var XP_KEY = 'xd_xp_v1';        // { xp: n, log: [{n, why, at}] }
+        var DAILY_KEY = 'xd_daily_v1';  // { date: 'Y-M-D', claimed: {t1:1,...} } 仅记录已领取，完成态实时推导
         XD.LEVELS = [
             { xp: 0, t: '懵懂新手' },
             { xp: 50, t: '初学乍练' },
@@ -716,15 +743,19 @@
             { xp: 2900, t: '博闻强识' },
             { xp: 3600, t: '数字学神' }
         ];
-        function rd() {
-            var a = LS(KEY);
+
+        /* ---- 存储层 ---- */
+        function readXp() {
+            var a = LS(XP_KEY);
             if (a && typeof a.xp === 'number') return a;
             return { xp: 0, log: [] };
         }
-        function wr(a) {
+        function writeXp(a) {
             if (a.log && a.log.length > 200) a.log = a.log.slice(-200);
-            SS(KEY, a);
+            SS(XP_KEY, a);
         }
+
+        /* ---- 等级推算：由经验值定位当前/下一级 ---- */
         function levelInfo(xp) {
             var lv = 0;
             for (var i = 0; i < XD.LEVELS.length; i++) if (xp >= XD.LEVELS[i].xp) lv = i;
@@ -743,14 +774,14 @@
             return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
         }
         XD.game = {
-            xp: function () { return rd().xp; },
-            level: function () { return levelInfo(rd().xp); },
+            xp: function () { return readXp().xp; },
+            level: function () { return levelInfo(readXp().xp); },
             add: function (n, why) {
-                var a = rd();
+                var a = readXp();
                 var before = levelInfo(a.xp).lv;
                 a.xp += n;
                 a.log.push({ n: n, why: why || '', at: Date.now() });
-                wr(a);
+                writeXp(a);
                 var after = levelInfo(a.xp).lv;
                 if (after > before) XD.showToast('🔺 升级！Lv' + after + ' · ' + levelInfo(a.xp).t, 3600);
                 XD.emit('game.xp', { xp: a.xp, n: n, why: why || '' });
@@ -772,7 +803,7 @@
                     if (e.type === 'quiz') qToday++;
                     if (e.type === 'practice' || e.type === 'mouse') pToday++;
                 }
-                var c = LS(DKEY);
+                var c = LS(DAILY_KEY);
                 var claimed = (c && c.date === XD.fmtDate(new Date()) && c.claimed) ? c.claimed : {};
                 var tasks = [
                     { id: 't1', t: '今日读满 2 页', d: '打开两篇图文课，进入页面自动记录', done: readsToday >= 2, xp: 10 },
@@ -788,10 +819,10 @@
                 var def = null;
                 for (var i = 0; i < tasks.length; i++) if (tasks[i].id === id) def = tasks[i];
                 if (!def || !def.done || def.claimed) return false;
-                var c = LS(DKEY) || {};
+                var c = LS(DAILY_KEY) || {};
                 if (c.date !== today || !c.claimed) c = { date: today, claimed: {} };
                 c.claimed[id] = 1;
-                SS(DKEY, c);
+                SS(DAILY_KEY, c);
                 XD.game.add(def.xp, '完成每日任务「' + def.t + '」');
                 XD.emit('game.daily', { id: id });
                 return true;
@@ -799,15 +830,22 @@
         };
     })();
 
-    /* ========== 首次导游 XD.guide：首页 3 步轮播遮罩（xd_guide_v1，可跳过） ========== */
+    /* ============================================================
+     * 首次导游 XD.guide（xd_guide_v1）——首页 3 步轮播遮罩
+     * 仅展示一次（完成后本地标记），可跳过；科普"学习如何为你计分"
+     * ============================================================ */
     (function () {
         var KEY = 'xd_guide_v1';
+
+        /* ---- 三步导游词（数据即文案，逐字保留） ---- */
         var STEPS = [
             { icon: '🗺️', t: '先看课程地图', d: '首页下面就是全部模块的课程地图，从你最想学的地方点进去，随时能回来。' },
             { icon: '✅', t: '打开页面自动记录', d: '每打开一篇图文课就记一次已读，首页绿色进度条会一点点往上涨，成就感看得见。' },
             { icon: '🏅', t: '测验积累经验升级', d: '每个模块结尾有一场结业测验，做完有解析；拿徽章、攒经验，一步步从小白升到"数字学神"。' }
         ];
+
         XD.guide = {
+            /* 未标记过则展示；已展示过静默跳过 */
             maybe: function () {
                 try { if (localStorage.getItem(KEY)) return; } catch (e) {}
                 XD.guide.show();
@@ -815,6 +853,8 @@
             show: function () {
                 if (document.getElementById('xdGuide')) return;
                 try { localStorage.setItem(KEY, '1'); } catch (e) {}
+
+                /* ---- 搭骨架：遮罩 + 步骤窗 + 导航 + 圆点 ---- */
                 var mask = document.createElement('div');
                 mask.className = 'guide-mask';
                 mask.id = 'xdGuide';
@@ -827,6 +867,8 @@
                 var stepEl = mask.querySelector('.guide-step');
                 var dotsEl = mask.querySelector('.guide-dots');
                 var nextEl = mask.querySelector('.guide-next');
+
+                /* ---- 渲染当前步与导航态 ---- */
                 var cur = 0;
                 function render() {
                     var s = STEPS[cur];
@@ -1517,11 +1559,15 @@
         });
     })();
 
-    /* ========== 首页仪表盘 XD.home（原 index.html 内联脚本） ========== */
-    /* 渲染职责拆为五个小函数；SYS/SITE 系统模块不参与学习进度展示 */
+    /* ============================================================
+     * 首页仪表盘 XD.home（原 index.html 内联脚本抽离）
+     * 渲染职责拆为五个小函数；SYS/SITE 系统模块不参与学习进度展示；
+     * 启动时机与内联脚本一致：DOMContentLoaded（或已就绪时立即执行）
+     * ============================================================ */
     (function () {
         function isSystemModule(mod) { return 'SYS SITE'.indexOf(mod.id) >= 0 && mod.id.length > 1; }
 
+        /* ---- 搜索入口：Ctrl+K / 输入框回车 / 搜索按钮 → 命令面板 ---- */
         function bindSearch() {
             var si = document.getElementById('searchInput');
             var sb = document.getElementById('searchBtn');
@@ -1533,7 +1579,7 @@
             });
         }
 
-        // 等级卡（XP 等级 + 经验条）
+        /* ---- 等级卡（XP 等级 + 经验条） ---- */
         function renderLevelCard() {
             var lvBox = document.getElementById('homeLevel');
             if (!lvBox) return;
@@ -1546,7 +1592,7 @@
                 '<div class="lv-next">' + (lv.nextT ? '距「' + XD.escapeHtml(lv.nextT) + '」还差 ' + (lv.next - lv.xp) + ' XP' : '🎉 已达最高等级') + '</div></div>';
         }
 
-        // 今日统计：今日学习 / 连续天数 / 已读页数 / 徽章数（全部从现有存储实时推导）
+        /* ---- 今日统计：今日学习 / 连续天数 / 已读页数 / 徽章数（全部实时推导） ---- */
         function renderTodayStats() {
             var ts = document.getElementById('todayStats');
             if (!ts) return;
@@ -1559,7 +1605,7 @@
                 '<span class="badge">🏅 徽章 ' + achN + '/' + XD.ACHIEVEMENTS.length + ' 枚</span>';
         }
 
-        // 进度环 + 进度条
+        /* ---- 进度环 + 进度条（CSS 变量 --p 驱动圆环） ---- */
         function renderProgressRing() {
             var pct = XD.progress.overall();
             var ring = document.getElementById('progRing');
@@ -1570,7 +1616,7 @@
             if (pf) pf.style.width = pct + '%';
         }
 
-        // 继续学习卡：取 xd_read_v1 里最近读过的页面
+        /* ---- 继续学习卡：取 xd_read_v1 里最近读过的页面 ---- */
         function renderContinueCard() {
             var cc = document.getElementById('continueCard');
             if (!cc) return;
@@ -1599,7 +1645,7 @@
             }
         }
 
-        // 模块卡片（一级目录）
+        /* ---- 模块卡片（一级目录，系统模块跳过） ---- */
         function renderModuleGrid() {
             var grid = document.getElementById('modGrid');
             if (!grid) return;
@@ -1632,7 +1678,7 @@
             }
         };
 
-        // 与原内联脚本相同的时机：DOMContentLoaded（或已就绪时立即执行）
+        /* ---- 启动时机：DOMContentLoaded（或已就绪时立即执行） ---- */
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', function () { XD.home.init(); });
         } else {

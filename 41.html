@@ -142,9 +142,16 @@
 </main>
 
 <script>
+/* ============================================================
+ * 学习仪表盘（页面内联脚本）
+ * 等级经验 / 学习统计 / 每日任务 / 错题弱项 / 各模块进度 /
+ * 测验成绩 / 收藏 / 热力日历 / 最近动态 一处汇总
+ * 数据全在 XD 本地存储，防御式启动：XD 缺失时静默退出
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD) return;
 
+    /* ---- 学习系统卡片：等级经验 / 每日任务 / 热力日历 / 错题弱项 ---- */
     function renderLevel() {
         var lv = XD.game.level();
         document.getElementById('levelCard').innerHTML =
@@ -364,6 +371,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
+    /* ---- 数据汇总区：统计卡 / 模块进度 / 测验成绩 / 最近动态 ---- */
     var totalLeaf = XD.PAGES ? XD.PAGES.length : 0;
     var doneCount = XD.progress.count();
     var pct = XD.progress.overall();
@@ -442,6 +450,7 @@ document.addEventListener('DOMContentLoaded', function () {
         rl.innerHTML = lis;
     }
 
+    /* ---- 我的收藏：列表展示 + 逐条取消收藏 ---- */
     function renderFav() {
         var box = document.getElementById('favList');
         if (!box || !XD.fav) return;
@@ -468,6 +477,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    /* ---- 启动渲染序列：各区块就位后依次点亮 ---- */
     renderLevel();
     renderTasks();
     renderWeak();

@@ -49,6 +49,10 @@
 </main>
 
 <script>
+/* ============================================================
+ * 更新公告（页面内联脚本）
+ * 读取 XD.VERSION_LOG 渲染版本日志；空列表时给出占位提示
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD) return;
     var box = document.getElementById('verLog');

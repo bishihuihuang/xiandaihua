@@ -64,6 +64,10 @@
 </main>
 
 <script>
+/* ============================================================
+ * 成就徽章墙（页面内联脚本）
+ * 汇总环 + 徽章卡片墙，解锁即自动记录时间并实时刷新
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD || !XD.achieve) return;
     function render() {

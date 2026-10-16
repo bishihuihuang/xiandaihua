@@ -53,11 +53,17 @@
 </main>
 
 <script>
+/* ============================================================
+ * 模块H结业测验（页面内联脚本，借 XD.quiz 引擎统一渲染/评分）
+ * 题目数据即文案：q / opts / a / exp 逐字保留；错题自动入错题本
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD || !XD.quiz) return;
     XD.quiz.run('quiz', {
         id: 'H',
         title: '模块H测验：手机与平板',
+
+        /* ---- 题目清单（10 题，q/opts/a/exp 逐字保留） ---- */
         questions: [
             {
                 q: '手机想要彻底关机，应该怎么按电源键？',

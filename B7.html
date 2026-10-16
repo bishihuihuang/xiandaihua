@@ -53,11 +53,17 @@
 </main>
 
 <script>
+/* ============================================================
+ * 模块B结业测验（页面内联脚本，借 XD.quiz 引擎统一渲染/评分）
+ * 题目数据即文案：q / opts / a / exp 逐字保留；错题自动入错题本
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD || !XD.quiz) return;
     XD.quiz.run('quiz', {
         id: 'B',
         title: '模块B测验：电脑使用',
+
+        /* ---- 题目清单（12 题，q/opts/a/exp 逐字保留） ---- */
         questions: [
             {
                 q: '桌面上带小箭头的图标大多是？',

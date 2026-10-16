@@ -53,11 +53,17 @@
 </main>
 
 <script>
+/* ============================================================
+ * 模块E结业测验（页面内联脚本，借 XD.quiz 引擎统一渲染/评分）
+ * 题目数据即文案：q / opts / a / exp 逐字保留；错题自动入错题本
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD || !XD.quiz) return;
     XD.quiz.run('quiz', {
         id: 'E',
         title: '模块E测验：如何使用 AI',
+
+        /* ---- 题目清单（8 题，q/opts/a/exp 逐字保留） ---- */
         questions: [
             {
                 q: '大语言模型（LLM）最准确的比喻是？',

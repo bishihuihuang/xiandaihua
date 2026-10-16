@@ -1,8 +1,15 @@
-/* 现代化学习站 V1.0 - 全局主题系统（默认深空流光 + 10 主题 + 自定义上传背景）
- * 主题面板：点右下角按钮弹出色块列表，点击应用，localStorage xd_theme 记忆
- * custom 主题支持上传本地图片作背景（压缩后存 localStorage xd_custom_bg）；
- * 左下角 👁 欣赏模式按钮（与右下角主题按钮对称同大小，点击隐藏界面只看背景） */
+/* ============================================================
+ * 全局主题系统（默认深空流光 + 10 主题 + 自定义上传背景）
+ * - 右下角 🎨 主题按钮：色块面板，点击应用，localStorage xd_theme 记忆
+ * - custom 主题：支持上传本地图片作背景（压缩后存 xd_custom_bg）
+ * - 左下角 👁 欣赏模式按钮：与主题按钮对称同大小，隐藏界面只看背景
+ * - 字号调节 A−/A/A+：持久化 xd_font_scale（0.8–1.4，默认 1）
+ * 页面使用约定：与 common.js/xd-features.js 一样以 defer 加载
+ * ============================================================ */
 (function () {
+    'use strict';
+
+    /* ---- 主题盘存：当前主题 / 主题表 / 旧名映射 ---- */
     var KEY = 'xd_theme';
     var BGB_KEY = 'xd_custom_bg';
     var THEMES = ['dark', 'blue', 'gold', 'light', 'milk', 'guofeng', 'snowsun', 'cyber', 'aurora', 'custom'];
@@ -15,12 +22,15 @@
 
     var panel = null;
 
-    /* ---------- 字号调节 A− / A / A+（持久化 xd_font_scale，0.8–1.4，默认 1） ---------- */
+    /* ---- 字号调节 A− / A / A+（持久化 xd_font_scale，0.8–1.4，默认 1） ---- */
     var FS_KEY = 'xd_font_scale';
     var fScale = parseFloat(localStorage.getItem(FS_KEY));
     if (isNaN(fScale) || fScale < 0.8 || fScale > 1.4) fScale = 1;
+    function clampFont(s) {
+        return Math.min(1.4, Math.max(0.8, Math.round(s * 10) / 10));
+    }
     function applyFont(s) {
-        fScale = Math.min(1.4, Math.max(0.8, Math.round(s * 10) / 10));
+        fScale = clampFont(s);
         document.documentElement.style.setProperty('--font-scale', fScale);
         try { localStorage.setItem(FS_KEY, String(fScale)); } catch (e) {}
         try {
@@ -50,37 +60,12 @@
         document.body.appendChild(box);
     }
 
+    /* ---- 自定义背景：应用已存图片 / 上传新图压缩入库 ---- */
     function applyCustomBg() {
         var bg = localStorage.getItem(BGB_KEY);
         if (bg) {
             document.documentElement.style.setProperty('--custom-bg', 'url(' + bg + ')');
         }
-    }
-
-    function apply(t) {
-        document.documentElement.setAttribute('data-theme', t);
-        localStorage.setItem(KEY, t);
-        current = t;
-        if (t === 'custom') applyCustomBg();
-        if (panel) {
-            var items = panel.querySelectorAll('.xd-theme-item');
-            for (var i = 0; i < items.length; i++) {
-                items[i].className = 'xd-theme-item' + (items[i].getAttribute('data-t') === t ? ' active' : '');
-            }
-        }
-        var btn = document.getElementById('xdThemeBtn');
-        if (btn) btn.setAttribute('data-t', t);
-    }
-
-    function dotBg(t) {
-        if (t === 'dark') return 'linear-gradient(135deg,#0a0e27,#331d6e)';
-        var prev = document.documentElement.getAttribute('data-theme');
-        document.documentElement.setAttribute('data-theme', t);
-        var s = getComputedStyle(document.documentElement);
-        var a = s.getPropertyValue('--gold').trim();
-        var b = s.getPropertyValue('--gold-2').trim();
-        document.documentElement.setAttribute('data-theme', prev || 'dark');
-        return 'linear-gradient(135deg,' + (a || '#888') + ',' + (b || '#888') + ')';
     }
 
     // 上传自定义背景：读图 → 压缩（最长边 ≤1600）→ jpeg dataURL → localStorage → 应用
@@ -116,6 +101,35 @@
         fr.readAsDataURL(file);
     }
 
+    /* ---- 主题应用：换 data-theme → 持久化 → 面板高亮同步 ---- */
+    function apply(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem(KEY, t);
+        current = t;
+        if (t === 'custom') applyCustomBg();
+        if (panel) {
+            var items = panel.querySelectorAll('.xd-theme-item');
+            for (var i = 0; i < items.length; i++) {
+                items[i].className = 'xd-theme-item' + (items[i].getAttribute('data-t') === t ? ' active' : '');
+            }
+        }
+        var btn = document.getElementById('xdThemeBtn');
+        if (btn) btn.setAttribute('data-t', t);
+    }
+
+    /* ---- 色块渐变预览：dark 固定深空流光；其余临时切主题读 --gold 系 ---- */
+    function dotBg(t) {
+        if (t === 'dark') return 'linear-gradient(135deg,#0a0e27,#331d6e)';
+        var prev = document.documentElement.getAttribute('data-theme');
+        document.documentElement.setAttribute('data-theme', t);
+        var s = getComputedStyle(document.documentElement);
+        var a = s.getPropertyValue('--gold').trim();
+        var b = s.getPropertyValue('--gold-2').trim();
+        document.documentElement.setAttribute('data-theme', prev || 'dark');
+        return 'linear-gradient(135deg,' + (a || '#888') + ',' + (b || '#888') + ')';
+    }
+
+    /* ---- 主题面板：标题 + 主题色块网格（custom 附上传按钮） ---- */
     function buildPanel() {
         panel = document.createElement('div');
         panel.className = 'xd-theme-panel';
@@ -167,6 +181,7 @@
         document.body.appendChild(panel);
     }
 
+    /* ---- 入口：应用主题字号 → 两个悬浮按钮 → 面板 → 外点关闭 ---- */
     function init() {
         apply(current);
         applyFont(fScale);

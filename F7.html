@@ -53,11 +53,17 @@
 </main>
 
 <script>
+/* ============================================================
+ * 模块F结业测验（页面内联脚本，借 XD.quiz 引擎统一渲染/评分）
+ * 题目数据即文案：q / opts / a / exp 逐字保留；错题自动入错题本
+ * ============================================================ */
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.XD || !XD.quiz) return;
     XD.quiz.run('quiz', {
         id: 'F',
         title: '模块F测验：Git 与 GitHub',
+
+        /* ---- 题目清单（10 题，q/opts/a/exp 逐字保留） ---- */
         questions: [
             {
                 q: '版本控制系统的核心价值不包括下列哪项？',
