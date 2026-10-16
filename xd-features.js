@@ -14,8 +14,11 @@
 (function () {
     var XD = window.XD = window.XD || {};
 
+    /* ========== 本地存储：JSON 安全读写（键统一 xd_ 前缀，永不抛错） ========== */
     function LS(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
     function SS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+    /* 诗意模块统一入口：语义与 LS/SS 完全相同，只是有了名字与归处 */
+    XD.storage = { get: LS, set: SS };
 
     /* ========== 通用工具 ========== */
     XD.showToast = function (msg, ms) {
@@ -70,14 +73,17 @@
         }
     };
 
-    /* ========== 事件总线：同页直调 + 跨 tab（BroadcastChannel + storage 兜底） ========== */
+    /* ========== 事件总线：同页直调 + 跨 tab（BroadcastChannel 主通道 + storage 兜底） ========== */
     XD._evt = {};
     XD.on = function (type, cb) {
         (XD._evt[type] = XD._evt[type] || []).push(cb);
     };
-    XD.emit = function (type, payload) {
-        var list = XD._evt[type] || [];
+    /* 派发：逐个调用本地监听，异常不影响其它监听 */
+    function busDispatch(list, payload) {
         for (var i = 0; i < list.length; i++) { try { list[i](payload || {}); } catch (e) {} }
+    }
+    XD.emit = function (type, payload) {
+        busDispatch(XD._evt[type] || [], payload);
         try {
             new BroadcastChannel('xiandaihua').postMessage({ type: type, payload: payload || {}, at: Date.now() });
         } catch (e) {}
@@ -87,16 +93,14 @@
         var _xdBC = new BroadcastChannel('xiandaihua');
         _xdBC.onmessage = function (e) {
             var d = e.data || {};
-            var list = XD._evt[d.type] || [];
-            for (var i = 0; i < list.length; i++) { try { list[i](d.payload || {}); } catch (err) {} }
+            busDispatch(XD._evt[d.type] || [], d.payload);
         };
     } catch (e) {}
     window.addEventListener('storage', function (e) {
         if (!e.newValue || !e.key || e.key.indexOf('xd_evt_') !== 0) return;
         var type = e.key.slice(7);
-        var list = XD._evt[type] || [];
         try { var p = JSON.parse(e.newValue).payload; } catch (e2) { return; }
-        for (var i = 0; i < list.length; i++) { try { list[i](p || {}); } catch (err) {} }
+        busDispatch(XD._evt[type] || [], p);
     });
 
     /* ============================================================
@@ -251,8 +255,10 @@
     ];
 
     /* ===== 树工具：扁平化 / 查找 / 面包屑 / 前后页 ===== */
+    // 节点约定：目录页有 children（文件 = id.html），内容页/测验/工具无 children
     XD._byId = {};
-    XD._flat = []; // DFS 展平的叶子+目录（全节点）
+    XD._flat = []; // DFS 展平的全节点（含目录），面包屑经 nd.path 取
+    function isLeaf(nd) { return !nd.children || !nd.children.length; }
     (function walk(nodes, parentPath) {
         for (var i = 0; i < nodes.length; i++) {
             var nd = nodes[i];
@@ -260,15 +266,15 @@
             nd.path = parentPath.concat(nd);
             XD._byId[nd.id] = nd;
             XD._flat.push(nd);
-            if (nd.children && nd.children.length) walk(nd.children, parentPath.concat(nd));
+            if (!isLeaf(nd)) walk(nd.children, parentPath.concat(nd));
         }
     })(XD.TREE, []);
 
-    XD.PAGES = []; // 供搜索：仅叶子（无 children），站点地图/SW 与构建脚本由 TREE 生成
+    XD.PAGES = []; // 搜索用：仅叶子节点；站点地图/SW 与构建脚本由 TREE 另生成
     (function () {
         for (var i = 0; i < XD._flat.length; i++) {
             var nd = XD._flat[i];
-            if (!nd.children || !nd.children.length) {
+            if (isLeaf(nd)) {
                 XD.PAGES.push({ f: nd.f, t: nd.n, k: (nd.d || '') + ' ' + nd.id, m: nd.id, quiz: nd.quiz || '' });
             }
         }
@@ -279,30 +285,32 @@
         var nd = XD._byId[id];
         return nd ? nd.path.slice() : [];
     };
-    // 某节点下所有叶子数量
     XD.leafCount = function (nd) {
-        if (!nd.children || !nd.children.length) return 1;
+        if (isLeaf(nd)) return 1;
         var c = 0;
         for (var i = 0; i < nd.children.length; i++) c += XD.leafCount(nd.children[i]);
         return c;
     };
-    // 全站叶子文件名集合（进度分母用）
+    // 十四大学习模块：进度分母，SYS/SITE 不计入学习进度
     XD.modIds = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N'];
     XD.leafFilesOfMod = function (modId) {
         var nd = XD._byId[modId];
         if (!nd) return [];
         var out = [];
-        (function w(n) {
-            if (!n.children || !n.children.length) { out.push(n.f); return; }
-            for (var i = 0; i < n.children.length; i++) w(n.children[i]);
+        (function walkLeaves(n) {
+            if (isLeaf(n)) { out.push(n.f); return; }
+            for (var i = 0; i < n.children.length; i++) walkLeaves(n.children[i]);
         })(nd);
         return out;
     };
 
     /* ========== 学习进度层 xd_read_v1 ========== */
+    // 读一页记一页：键 = 文件名，值 = 阅读时间戳；进度分母 = 十四大模块全部叶子页
     (function () {
         var KEY = 'xd_read_v1';
         function read() { return LS(KEY) || {}; }
+        function percentOf(readCount, total) { return total ? Math.round(readCount / total * 100) : 0; }
+
         XD.progress = {
             all: read,
             markRead: function (f) {
@@ -320,49 +328,47 @@
             nodeProgress: function (idOrNode) {
                 var nd = typeof idOrNode === 'string' ? XD.node(idOrNode) : idOrNode;
                 if (!nd) return 0;
-                var files = [];
-                (function w(n) {
-                    if (!n.children || !n.children.length) { files.push(n.f); return; }
-                    for (var i = 0; i < n.children.length; i++) w(n.children[i]);
-                })(nd);
+                var files = XD.leafFilesOfMod(nd.id);
                 if (!files.length) return 0;
                 var a = read(), n = 0;
                 for (var i = 0; i < files.length; i++) if (a[files[i]]) n++;
-                return Math.round(n / files.length * 100);
+                return percentOf(n, files.length);
             },
             overall: function () {
-                var total = 0, n = 0, a = read();
+                var total = 0, readCount = 0, a = read();
                 for (var m = 0; m < XD.modIds.length; m++) {
                     var files = XD.leafFilesOfMod(XD.modIds[m]);
                     total += files.length;
-                    for (var i = 0; i < files.length; i++) if (a[files[i]]) n++;
+                    for (var i = 0; i < files.length; i++) if (a[files[i]]) readCount++;
                 }
-                return total ? Math.round(n / total * 100) : 0;
+                return percentOf(readCount, total);
             }
         };
     })();
 
     /* ========== 目录页渲染：renderDir(containerId, nodeId) ========== */
+    function isDirNode(nd) { return nd.children && nd.children.length; }
+    function badgeOf(nd) { return isDirNode(nd) ? '📁 模块目录' : (nd.quiz ? '📝 结业测验' : nd.tool ? '🧪 互动工具' : '📖 图文课'); }
+    function iconOf(nd) { return nd.icon || (nd.quiz ? '📝' : nd.tool ? '🧪' : isDirNode(nd) ? '📁' : '📖'); }
+    function statusOf(p) { return p === 100 ? '<span class="done-flag">✅ 已完成</span>' : p > 0 ? '进行中 ' + p + '%' : '未开始'; }
     XD.renderDir = function (containerId, nodeId) {
         var box = document.getElementById(containerId);
         var nd = XD.node(nodeId);
-        if (!box || !nd || !nd.children || !nd.children.length) return;
+        if (!box || !nd || !isDirNode(nd)) return;
         var html = '';
         for (var i = 0; i < nd.children.length; i++) {
             var c = nd.children[i];
             var p = XD.progress.nodeProgress(c);
-            var isDir = c.children && c.children.length;
-            var badge = isDir ? '📁 模块目录' : (c.quiz ? '📝 结业测验' : c.tool ? '🧪 互动工具' : '📖 图文课');
             var tag = p === 100 ? '✅' : p > 0 ? p + '%' : '';
             html += '<a class="module-card" href="' + c.f + '">' +
                 (tag ? '<span class="tag">' + tag + '</span>' : '') +
-                '<div class="mod-head"><span style="font-size:28px;">' + (c.icon || (c.quiz ? '📝' : c.tool ? '🧪' : isDir ? '📁' : '📖')) + '</span>' +
+                '<div class="mod-head"><span style="font-size:28px;">' + iconOf(c) + '</span>' +
                 '<span class="mod-no">' + c.id + '</span></div>' +
                 '<b>' + XD.escapeHtml(c.n) + '</b>' +
                 '<span>' + XD.escapeHtml(c.d || '') + '</span>' +
-                '<ul><li>' + badge + ' · ' + (isDir ? XD.leafCount(c) + ' 页内容' : '直接阅读') + '</li>' +
-                '<li>' + (p === 100 ? '<span class="done-flag">✅ 已完成</span>' : p > 0 ? '进行中 ' + p + '%' : '未开始') + '</li></ul>' +
-                (isDir || c.quiz || c.tool ? '' : '<div class="dir-prog"><i style="width:' + p + '%;"></i></div>') +
+                '<ul><li>' + badgeOf(c) + ' · ' + (isDirNode(c) ? XD.leafCount(c) + ' 页内容' : '直接阅读') + '</li>' +
+                '<li>' + statusOf(p) + '</li></ul>' +
+                (isDirNode(c) || c.quiz || c.tool ? '' : '<div class="dir-prog"><i style="width:' + p + '%;"></i></div>') +
                 '</a>';
         }
         box.innerHTML = html;
@@ -590,12 +596,20 @@
         };
     })();
 
-    /* ========== 成就系统 xd_ach_v1 ========== */
+    /* ============================================================
+     * 成就系统 xd_ach_v1：26 枚徽章
+     * ACHIEVEMENTS 为徽章定义表（文案即数据，逐字保留）；
+     * XD.achieve 负责读取、幂等解锁与从学习记录推导判定。
+     * ============================================================ */
     (function () {
         var KEY = 'xd_ach_v1';
+        var QUIZ_IDS = ['A', 'B', 'C', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N']; /* 有测验的 13 个模块 */
+
         XD.ACHIEVEMENTS = [
+            /* 阅读 */
             { id: 'first_read', t: '初来乍到', d: '阅读完第一节课', icon: '🎯' },
             { id: 'explorer', t: '全站漫游', d: '累计阅读 20 个不同页面', icon: '🧭' },
+            /* 模块完成（A-N） */
             { id: 'mod_a', t: '硬件通', d: '完成模块A：计算机基础', icon: '🖥️' },
             { id: 'mod_b', t: '电脑高手', d: '完成模块B：电脑详细使用', icon: '🖱️' },
             { id: 'mod_c', t: '网络向导', d: '完成模块C：网络与服务器', icon: '🌐' },
@@ -610,18 +624,49 @@
             { id: 'mod_l', t: '购物达人', d: '完成模块L：网上购物与现代消费', icon: '🛒' },
             { id: 'mod_m', t: '智家能手', d: '完成模块M：数字生活进阶', icon: '🏠' },
             { id: 'mod_n', t: '出行达人', d: '完成模块N：旅游与出行', icon: '🧳' },
+            /* 测验 */
             { id: 'quiz_first', t: '小试牛刀', d: '完成第一次测验', icon: '✏️' },
             { id: 'quiz_perfect', t: '满分学霸', d: '任意测验取得满分', icon: '🏆' },
             { id: 'all_quiz', t: '测验达人', d: '完成全部 13 个模块测验', icon: '🎓' },
+            /* 练习器 */
             { id: 'shortcut_10', t: '快键新手', d: '快捷键练习器累计答对 10 题', icon: '⚡' },
             { id: 'shortcut_50', t: '快键高手', d: '快捷键练习器累计答对 50 题', icon: '🚀' },
             { id: 'typing_40', t: '打字入门', d: '打字测试达到 40 字/分钟', icon: '⌨️' },
             { id: 'typing_80', t: '键盘大师', d: '打字测试达到 80 字/分钟', icon: '👑' },
+            /* 坚持 */
             { id: 'streak_3', t: '坚持三天', d: '连续学习 3 天', icon: '🔥' },
             { id: 'streak_7', t: '坚持一周', d: '连续学习 7 天', icon: '⭐' },
             { id: 'graduate', t: '顺利毕业', d: '学完全部 14 个模块（毕业证书页可打印证书）', icon: '🏫' }
         ];
+
         function got() { return LS(KEY) || {}; }
+        function defOf(id) {
+            for (var i = 0; i < XD.ACHIEVEMENTS.length; i++) if (XD.ACHIEVEMENTS[i].id === id) return XD.ACHIEVEMENTS[i];
+            return null;
+        }
+
+        /* 阅读量徽章 */
+        function unlockReadAwards(keys) {
+            if (keys.length >= 1) XD.achieve.unlock('first_read');
+            if (keys.length >= 20) XD.achieve.unlock('explorer');
+        }
+        /* 模块全页读完徽章；返回是否全部模块都完成 */
+        function unlockModAwards(readMap) {
+            var allDone = true;
+            for (var m = 0; m < XD.modIds.length; m++) {
+                var files = XD.leafFilesOfMod(XD.modIds[m]), n = 0;
+                for (var i = 0; i < files.length; i++) if (readMap[files[i]]) n++;
+                if (files.length && n === files.length) XD.achieve.unlock('mod_' + XD.modIds[m].toLowerCase());
+                if (files.length && n < files.length) allDone = false;
+            }
+            return allDone;
+        }
+        /* 连续学习徽章 */
+        function unlockStreakAwards() {
+            if (XD.studyLog.streakDays() >= 3) XD.achieve.unlock('streak_3');
+            if (XD.studyLog.streakDays() >= 7) XD.achieve.unlock('streak_7');
+        }
+
         XD.achieve = {
             list: function () {
                 var g = got();
@@ -631,9 +676,8 @@
             },
             unlock: function (id) {
                 var g = got();
-                if (g[id]) return;
-                var def = null;
-                for (var i = 0; i < XD.ACHIEVEMENTS.length; i++) if (XD.ACHIEVEMENTS[i].id === id) def = XD.ACHIEVEMENTS[i];
+                if (g[id]) return; /* 幂等：已解锁直接返回 */
+                var def = defOf(id);
                 if (!def) return;
                 g[id] = Date.now();
                 SS(KEY, g);
@@ -641,25 +685,15 @@
                 XD.emit('achieve.unlocked', { id: id, t: def.t });
             },
             checkProgress: function (readMap) {
-                var keys = Object.keys(readMap);
-                if (keys.length >= 1) XD.achieve.unlock('first_read');
-                if (keys.length >= 20) XD.achieve.unlock('explorer');
-                var allDone = true;
-                for (var m = 0; m < XD.modIds.length; m++) {
-                    var files = XD.leafFilesOfMod(XD.modIds[m]), n = 0;
-                    for (var i = 0; i < files.length; i++) if (readMap[files[i]]) n++;
-                    if (files.length && n === files.length) XD.achieve.unlock('mod_' + XD.modIds[m].toLowerCase());
-                    if (files.length && n < files.length) allDone = false;
-                }
-                if (XD.studyLog.streakDays() >= 3) XD.achieve.unlock('streak_3');
-                if (XD.studyLog.streakDays() >= 7) XD.achieve.unlock('streak_7');
+                unlockReadAwards(Object.keys(readMap));
+                var allDone = unlockModAwards(readMap);
+                unlockStreakAwards();
                 if (allDone) XD.achieve.unlock('graduate');
             },
             checkQuiz: function (all) {
-                var ids = ['A', 'B', 'C', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N'];
                 var n = 0;
-                for (var i = 0; i < ids.length; i++) if (all && all[ids[i]]) n++;
-                if (n >= ids.length) XD.achieve.unlock('all_quiz');
+                for (var i = 0; i < QUIZ_IDS.length; i++) if (all && all[QUIZ_IDS[i]]) n++;
+                if (n >= QUIZ_IDS.length) XD.achieve.unlock('all_quiz');
             }
         };
     })();
@@ -820,43 +854,66 @@
         };
     })();
 
-    /* ========== 收藏夹 xd_fav_v1 ========== */
+    /* ============================================================
+     * 收藏夹 XD.fav（xd_fav_v1）——每页右上角 ☆/★ 切换，仪表盘「我的收藏」读取
+     * 结构：存储层 read/write（值必须是数组，损坏数据视为空）＋ 业务层五接口
+     * ============================================================ */
     (function () {
         var KEY = 'xd_fav_v1';
-        function rd() {
-            try { var a = JSON.parse(localStorage.getItem(KEY)); if (Object.prototype.toString.call(a) === '[object Array]') return a; } catch (e) {}
+
+        /* ---- 存储层 ---- */
+        function read() {
+            try {
+                var a = JSON.parse(localStorage.getItem(KEY));
+                if (Object.prototype.toString.call(a) === '[object Array]') return a;
+            } catch (e) {}
             return [];
         }
-        function wr(a) { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
+        function write(a) { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch (e) {} }
+
+        /* ---- 业务层：文件名 ↔ 页面信息（未收录的旧收藏仍可列出） ---- */
+        function pageOf(f) {
+            for (var i = 0; i < XD.PAGES.length; i++) if (XD.PAGES[i].f === f) return XD.PAGES[i];
+            return null;
+        }
+
         XD.fav = {
             list: function () {
-                var a = rd(), out = [];
+                var a = read(), out = [];
                 for (var i = 0; i < a.length; i++) {
-                    var p = null;
-                    for (var j = 0; j < XD.PAGES.length; j++) if (XD.PAGES[j].f === a[i]) { p = XD.PAGES[j]; break; }
+                    var p = pageOf(a[i]);
                     out.push(p ? { f: p.f, t: p.t, m: p.m } : { f: a[i], t: a[i], m: '' });
                 }
                 return out;
             },
-            has: function (f) { return rd().indexOf(f) >= 0; },
+            has: function (f) { return read().indexOf(f) >= 0; },
             toggle: function (f) {
-                var a = rd(), i = a.indexOf(f);
-                if (i >= 0) { a.splice(i, 1); wr(a); XD.emit('fav.changed', { f: f, on: false }); return false; }
-                a.push(f); wr(a); XD.emit('fav.changed', { f: f, on: true }); return true;
+                var a = read(), i = a.indexOf(f);
+                if (i >= 0) { a.splice(i, 1); write(a); XD.emit('fav.changed', { f: f, on: false }); return false; }
+                a.push(f); write(a); XD.emit('fav.changed', { f: f, on: true }); return true;
             },
             remove: function (f) {
-                var a = rd(), i = a.indexOf(f);
-                if (i >= 0) { a.splice(i, 1); wr(a); XD.emit('fav.changed', { f: f, on: false }); }
+                var a = read(), i = a.indexOf(f);
+                if (i >= 0) { a.splice(i, 1); write(a); XD.emit('fav.changed', { f: f, on: false }); }
             },
-            count: function () { return rd().length; }
+            count: function () { return read().length; }
         };
     })();
 
-    /* ========== 语音朗读 XD.speak（图文课；SpeechSynthesis 存在性守卫） ========== */
+    /* ============================================================
+     * 语音朗读 XD.speak —— 图文课正文朗读条（🔊 每页右上角）
+     * SpeechSynthesis 缺失时提供空壳 toggle（不抛错）
+     * 段落来源：h1/h2/h3/p/li/td/th，排除工具性区块（代码/测验/页脚/目录/前后页/操作条/自身）
+     * ============================================================ */
     (function () {
         if (!('speechSynthesis' in window)) { XD.speak = { toggle: function () {} }; return; }
+
         var synth = window.speechSynthesis;
         var bar = null, parts = [], idx = 0, rate = 1, paused = false, running = false;
+        var utter = null;
+
+        /* ---- 收集可朗读段落 ---- */
+        var SKIP = '.code-block, .quiz-report, .lesson-footer, .toc, .lesson-nav, .page-actions, .speak-bar';
         function collect() {
             var box = document.querySelector('.lesson.container');
             if (!box) return [];
@@ -864,12 +921,14 @@
             var out = [];
             for (var i = 0; i < nodes.length; i++) {
                 var n = nodes[i];
-                if (n.closest('.code-block, .quiz-report, .lesson-footer, .toc, .lesson-nav, .page-actions, .speak-bar')) continue;
+                if (n.closest(SKIP)) continue;
                 var t = (n.textContent || '').replace(/\s+/g, ' ').trim();
                 if (t) out.push({ el: n, text: t });
             }
             return out;
         }
+
+        /* ---- 高亮与滚动 ---- */
         function clearHL() {
             if (!parts.length) return;
             for (var i = 0; i < parts.length; i++) parts[i].el.classList.remove('speaking');
@@ -891,6 +950,8 @@
             utter = u;
             synth.speak(u);
         }
+
+        /* ---- 结束 / 停止 ---- */
         function finish() {
             running = false;
             clearHL();
@@ -906,6 +967,8 @@
             clearHL();
             idx = 0;
         }
+
+        /* ---- 朗读条 UI ---- */
         function buildBar() {
             bar = document.createElement('div');
             bar.className = 'speak-bar';
@@ -947,6 +1010,7 @@
             synth.cancel();
             speakPart();
         }
+
         XD.speak = {
             toggle: function () {
                 if (running || paused) { stop(); if (bar) bar.style.display = 'none'; }
@@ -956,25 +1020,35 @@
         };
     })();
 
-    /* ========== 护眼提醒 xd_eye_v1：当日累计学习满 45 分钟提醒一次 ========== */
+    /* ============================================================
+     * 护眼提醒 XD.eyeCare（xd_eye_v1）——当日累计学习满 45 分钟提醒一次
+     * 每 30 秒 tick（页面不可见时跳过计数），提醒后 1 小时冷却
+     * ============================================================ */
     (function () {
         var KEY = 'xd_eye_v1';
         var TIP_SEC = 45 * 60;
         var COOLDOWN = 60 * 60 * 1000;
-        function rd() {
-            try { var o = JSON.parse(localStorage.getItem(KEY)); if (o && typeof o === 'object') return o; } catch (e) {}
+
+        /* ---- 存储层：跨日自动重置 ---- */
+        function read() {
+            try {
+                var o = JSON.parse(localStorage.getItem(KEY));
+                if (o && typeof o === 'object') return o;
+            } catch (e) {}
             return { date: '', sec: 0, lastTip: 0 };
         }
-        function wr(o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
+        function write(o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
         function today() { return XD.fmtDate(new Date()); }
+
+        /* ---- 累计 30 秒一跳，满 45 分钟且冷却已过才提醒 ---- */
         function tick() {
-            var o = rd();
+            var o = read();
             if (o.date !== today()) o = { date: today(), sec: 0, lastTip: 0 };
             o.sec += 30;
             var now = Date.now();
             var show = o.sec >= TIP_SEC && now - o.lastTip >= COOLDOWN;
             if (show) o.lastTip = now;
-            wr(o);
+            write(o);
             if (show) showTip();
         }
         function showTip() {
@@ -994,6 +1068,7 @@
                 setTimeout(function () { if (tip.parentNode) tip.parentNode.removeChild(tip); }, 300);
             });
         }
+
         XD.eyeCare = {
             start: function () {
                 if (typeof document.visibilityState === 'undefined' && typeof document.hidden === 'undefined') return;
@@ -1017,9 +1092,14 @@
         { ver: '1.0.0', title: '现代知识学院开学', desc: '七大模块上线：计算机基础/电脑使用/网络与服务器/键盘快捷键/AI/Git与GitHub/Web开发；快捷键练习器、Git演练场、提示词实验室、测验与错题本、学习仪表盘' }
     ];
 
-    /* ========== 站内搜索（/ 热键） ========== */
+    /* ============================================================
+     * 站内搜索 XD.search（Ctrl+K 或 / 唤起玻璃命令面板）
+     * 职责拆分：escRe 转义 / hl 高亮 / matches 过滤 / build 面板 / render 结果 / move 选择 / open close 开合
+     * ============================================================ */
     (function () {
         var mask = null, input = null, listEl = null, cur = -1, items = [];
+
+        /* ---- 匹配与高亮 ---- */
         function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
         function hl(text, kw) {
             var esc = XD.escapeHtml(String(text == null ? '' : text));
@@ -1027,6 +1107,9 @@
             try { return esc.replace(new RegExp('(' + escRe(kw) + ')', 'gi'), '<mark class="hl">$1</mark>'); }
             catch (err) { return esc; }
         }
+        function matches(p, kw) { return (p.t + ' ' + p.k + ' ' + p.f).toLowerCase().indexOf(kw) >= 0; }
+
+        /* ---- 面板构建（一次性，open 时复用） ---- */
         function build() {
             mask = document.createElement('div');
             mask.className = 'xd-search-mask';
@@ -1046,12 +1129,14 @@
                 else if (e.key === 'Enter' && items.length) { location.href = items[Math.max(0, cur)]; }
             });
         }
+
+        /* ---- 结果渲染：空词列出全部，命中词高亮，无结果给空态 ---- */
         function render(kw) {
             kw = (kw || '').trim().toLowerCase();
             cur = -1;
             var ps = XD.PAGES.filter(function (p) {
                 if (!kw) return true;
-                return (p.t + ' ' + p.k + ' ' + p.f).toLowerCase().indexOf(kw) >= 0;
+                return matches(p, kw);
             }).slice(0, 30);
             items = ps.map(function (p) { return p.f; });
             var html = '';
@@ -1065,12 +1150,16 @@
                 els[j].onclick = function () { location.href = this.getAttribute('data-f'); };
             }
         }
+
+        /* ---- 键盘循环选择 ---- */
         function move(d) {
             var els = listEl.querySelectorAll('.xd-search-item[data-f]');
             if (!els.length) return;
             cur = (cur + d + els.length) % els.length;
             for (var i = 0; i < els.length; i++) els[i].classList.toggle('hot', i === cur);
         }
+
+        /* ---- 开合 ---- */
         function open() {
             if (!mask) build();
             mask.classList.add('open');
@@ -1079,80 +1168,89 @@
             setTimeout(function () { input.focus(); }, 50);
         }
         function close() { if (mask) mask.classList.remove('open'); }
+
+        /* ---- 全局热键：输入态放行，Ctrl+K 与 / 唤起 ---- */
         document.addEventListener('keydown', function (e) {
             var tag = (e.target && e.target.tagName) || '';
             if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
             if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); open(); return; }
             if (e.key === '/' && mask && !mask.classList.contains('open')) { e.preventDefault(); open(); }
         });
+
         XD.search = { open: open, close: close };
     })();
 
-    /* ========== 玻璃拟态 UI（v1.5）：光随鼠走 + 玻璃停靠栏 ========== */
+    /* ============================================================
+     * 玻璃拟态 UI（v1.5）：
+     * ① 光随鼠走 —— 卡片 3D 倾斜 + 光斑跟随，事件委托提升性能；
+     * ② 玻璃停靠栏 —— 全站底部居中图标 dock，悬停当前放大、相邻跟随。
+     * ============================================================ */
     (function () {
-        /* 光随鼠走：事件委托，mousemove 更新 CSS 变量驱动光斑与 3D 倾斜（移出复原） */
+        /* ---- 光随鼠走：mousemove 委托更新 CSS 变量（移出复原） ---- */
+        var CARD_SEL = '.card, .module-card, .qc-card, .scene-card';
         var tiltEl = null;
+        function tiltVars(px, py, w, h) {
+            return {
+                mx: px + 'px', my: py + 'px',
+                rx: ((py / h) - 0.5) * -3 + 'deg',
+                ry: ((px / w) - 0.5) * 3 + 'deg'
+            };
+        }
         function setTilt(el, x, y) {
             var r = el.getBoundingClientRect();
             if (!r || !r.width) return;
-            var px = x - r.left, py = y - r.top;
-            el.style.setProperty('--mx', px + 'px');
-            el.style.setProperty('--my', py + 'px');
-            el.style.setProperty('--rx', ((py / r.height) - 0.5) * -3 + 'deg');
-            el.style.setProperty('--ry', ((px / r.width) - 0.5) * 3 + 'deg');
+            var v = tiltVars(x - r.left, y - r.top, r.width, r.height);
+            el.style.setProperty('--mx', v.mx);
+            el.style.setProperty('--my', v.my);
+            el.style.setProperty('--rx', v.rx);
+            el.style.setProperty('--ry', v.ry);
         }
         function clearTilt(el) {
             el.style.setProperty('--rx', '0deg');
             el.style.setProperty('--ry', '0deg');
         }
         document.addEventListener('mousemove', function (e) {
-            var t = e.target;
-            var c = t && t.closest ? t.closest('.card, .module-card, .qc-card, .scene-card') : null;
+            var c = e.target && e.target.closest ? e.target.closest(CARD_SEL) : null;
             if (c) { setTilt(c, e.clientX, e.clientY); tiltEl = c; }
             else if (tiltEl) { clearTilt(tiltEl); tiltEl = null; }
         }, true);
 
-        /* 玻璃停靠栏：全站底部居中图标 dock，悬停当前放大 + 相邻跟随 */
+        /* ---- 玻璃停靠栏：DOCK 数据 + 惰性构建 + 悬停提升 ---- */
         var DOCK = [
-            ['index.html', '🏠', '首页'],
-            ['1.html', '🗂️', '全站目录'],
-            ['41.html', '📊', '学习仪表盘'],
-            ['42.html', '🏅', '成就徽章墙'],
-            ['43.html', '✏️', '测验中心'],
-            ['SYS4.html', '🧭', '场景速查'],
-            ['SYS5.html', '📖', '术语词典'],
-            ['SYS6.html', '🎓', '毕业证书'],
-            [null, '🔍', '搜索']
+            { f: 'index.html', ic: '🏠', t: '首页' },
+            { f: '1.html', ic: '🗂️', t: '全站目录' },
+            { f: '41.html', ic: '📊', t: '学习仪表盘' },
+            { f: '42.html', ic: '🏅', t: '成就徽章墙' },
+            { f: '43.html', ic: '✏️', t: '测验中心' },
+            { f: 'SYS4.html', ic: '🧭', t: '场景速查' },
+            { f: 'SYS5.html', ic: '📖', t: '术语词典' },
+            { f: 'SYS6.html', ic: '🎓', t: '毕业证书' },
+            { f: null, ic: '🔍', t: '搜索' } /* 无页面 → 打开命令面板 */
         ];
-        function buildDock() {
-            if (!document.body || document.getElementById('xdDock')) return;
-            var cur = document.body.getAttribute('data-page') || '';
-            var dock = document.createElement('div');
-            dock.className = 'glass-dock';
-            dock.id = 'xdDock';
-            var h = '';
-            for (var i = 0; i < DOCK.length; i++) {
-                var d = DOCK[i];
-                if (d[0]) h += '<a href="' + d[0] + '" title="' + d[2] + '"' + (d[0] === cur ? ' class="on"' : '') + '>' + d[1] + '</a>';
-                else h += '<button type="button" class="dock-btn" data-dock="search" title="' + d[2] + '">' + d[1] + '</button>';
-            }
-            dock.innerHTML = h;
-            document.body.appendChild(dock);
-            var searchBtns = dock.querySelectorAll('.dock-btn[data-dock="search"]');
-            for (var s = 0; s < searchBtns.length; s++) {
+        function dockItemHtml(d, cur) {
+            if (d.f) return '<a href="' + d.f + '" title="' + d.t + '"' + (d.f === cur ? ' class="on"' : '') + '>' + d.ic + '</a>';
+            return '<button type="button" class="dock-btn" data-dock="search" title="' + d.t + '">' + d.ic + '</button>';
+        }
+        function bindSearchBtns(dock) {
+            var btns = dock.querySelectorAll('.dock-btn[data-dock="search"]');
+            for (var s = 0; s < btns.length; s++) {
                 (function (b) {
                     b.addEventListener('click', function () { if (window.XD && XD.search) XD.search.open(); });
-                })(searchBtns[s]);
+                })(btns[s]);
             }
-            var items = dock.children;
+        }
+        function bindLift(items) {
+            function idxOf(it) {
+                for (var q = 0; q < items.length; q++) if (items[q] === it) return q;
+                return -1;
+            }
             for (var k = 0; k < items.length; k++) {
                 (function (it) {
                     it.addEventListener('mouseenter', function () {
                         it.classList.add('lift-lg');
-                        var idx = -1;
-                        for (var q = 0; q < items.length; q++) if (items[q] === it) { idx = q; break; }
-                        if (idx > 0) items[idx - 1].classList.add('lift');
-                        if (idx >= 0 && idx < items.length - 1) items[idx + 1].classList.add('lift');
+                        var i = idxOf(it);
+                        if (i > 0) items[i - 1].classList.add('lift');
+                        if (i >= 0 && i < items.length - 1) items[i + 1].classList.add('lift');
                     });
                     it.addEventListener('mouseleave', function () {
                         it.classList.remove('lift-lg');
@@ -1161,15 +1259,34 @@
                 })(items[k]);
             }
         }
+        function buildDock() {
+            if (!document.body || document.getElementById('xdDock')) return; /* 幂等 */
+            var cur = document.body.getAttribute('data-page') || '';
+            var dock = document.createElement('div');
+            dock.className = 'glass-dock';
+            dock.id = 'xdDock';
+            var h = '';
+            for (var i = 0; i < DOCK.length; i++) h += dockItemHtml(DOCK[i], cur);
+            dock.innerHTML = h;
+            document.body.appendChild(dock);
+            bindSearchBtns(dock);
+            bindLift(dock.children);
+        }
         if (document.body) {
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildDock);
             else buildDock();
         }
     })();
 
-    /* ========== 液态模块导航条（v1.5）：目录页顶部 A-N 玻璃胶囊 + 液态滑块回弹 ========== */
+    /* ============================================================
+     * 液态模块导航条（v1.5）：目录页顶部 A-N 玻璃胶囊 + 液态滑块
+     * 滑块"像水一样"滑到当前模块；点击胶囊平滑滚动后延迟跳转。
+     * ============================================================ */
     (function () {
         var MOD_ICONS = { A: '📱', B: '💻', C: '🖥️', D: '⌨️', E: '🌐', F: '📄', G: '📷', H: '🎬', I: '🎵', J: '🛒', K: '🧮', L: '🗣️', M: '📞', N: '⚙️' };
+        var HOME_PILL = '<a class="mod-pill" href="index.html" data-mod="HOME" title="首页">🏠 首页</a>';
+        var JUMP_DELAY = 440; /* 点击后留给滑块动画的时间 */
+
         function modOf(page) {
             if (page === 'index.html' || page === '1.html') return 'HOME';
             for (var i = 0; i < XD.modIds.length; i++) {
@@ -1177,49 +1294,54 @@
             }
             return '';
         }
-        function buildStrip() {
-            if (!window.XD || !XD.TREE) return;
-            if (document.body.getAttribute('data-kind') !== 'dir') return;
-            var container = document.querySelector('main .container') || document.querySelector('.container');
-            if (!container) return;
-            var h1 = container.querySelector('h1');
-            if (!h1 || container.querySelector('.mod-strip')) return;
-            var page = document.body.getAttribute('data-page') || '';
-            var cur = modOf(page);
-            var html = '<div class="mod-strip"><div class="mod-pills">';
-            html += '<a class="mod-pill' + (cur === 'HOME' ? ' on' : '') + '" href="index.html" data-mod="HOME" title="首页">🏠 首页</a>';
-            for (var m = 0; m < XD.modIds.length; m++) {
-                var id = XD.modIds[m];
-                var nd = XD.node(id);
-                if (!nd) continue;
-                html += '<a class="mod-pill' + (cur === id ? ' on' : '') + '" href="' + (nd.f || id + '.html') + '" data-mod="' + id + '" title="' + XD.escapeHtml(nd.n) + '">' + (MOD_ICONS[id] || '📁') + ' <b>' + id + '</b></a>';
-            }
-            html += '<span class="mod-slider"></span></div></div>';
-            h1.insertAdjacentHTML('beforebegin', html);
-            var slider = container.querySelector('.mod-strip .mod-slider');
-            var pills = container.querySelectorAll('.mod-pill');
-            function place() {
-                var target = null;
-                for (var i = 0; i < pills.length; i++) if (pills[i].classList.contains('on')) { target = pills[i]; break; }
-                if (!target) { slider.style.display = 'none'; return; }
-                slider.style.display = '';
-                slider.style.left = (target.offsetLeft + 2) + 'px';
-                slider.style.width = Math.max(0, target.offsetWidth - 4) + 'px';
-            }
-            place();
+        function pillHtml(id, cur) {
+            var nd = XD.node(id);
+            if (!nd) return '';
+            return '<a class="mod-pill' + (cur === id ? ' on' : '') + '" href="' + (nd.f || id + '.html') + '" data-mod="' + id + '" title="' + XD.escapeHtml(nd.n) + '">' + (MOD_ICONS[id] || '📁') + ' <b>' + id + '</b></a>';
+        }
+        /* 滑块贴住 .on 胶囊（左右各内缩 2px，避免遮住圆角） */
+        function place(slider, pills) {
+            var target = null;
+            for (var i = 0; i < pills.length; i++) if (pills[i].classList.contains('on')) { target = pills[i]; break; }
+            if (!target) { slider.style.display = 'none'; return; }
+            slider.style.display = '';
+            slider.style.left = (target.offsetLeft + 2) + 'px';
+            slider.style.width = Math.max(0, target.offsetWidth - 4) + 'px';
+        }
+        function bindPills(pills, slider) {
             for (var p = 0; p < pills.length; p++) {
                 (function (pill) {
                     pill.addEventListener('click', function (e) {
                         if (pill.classList.contains('on')) return;
                         e.preventDefault();
-                        if (pill.scrollIntoView) { try { pill.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); } catch (err) { } }
+                        if (pill.scrollIntoView) {
+                            try { pill.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); } catch (err) { }
+                        }
                         slider.style.display = '';
                         slider.style.left = (pill.offsetLeft + 2) + 'px';
                         slider.style.width = Math.max(0, pill.offsetWidth - 4) + 'px';
-                        setTimeout(function () { location.href = pill.getAttribute('href'); }, 440);
+                        setTimeout(function () { location.href = pill.getAttribute('href'); }, JUMP_DELAY);
                     });
                 })(pills[p]);
             }
+        }
+        function buildStrip() {
+            if (!window.XD || !XD.TREE) return;
+            if (document.body.getAttribute('data-kind') !== 'dir') return; /* 仅目录页 */
+            var container = document.querySelector('main .container') || document.querySelector('.container');
+            if (!container) return;
+            var h1 = container.querySelector('h1');
+            if (!h1 || container.querySelector('.mod-strip')) return; /* 幂等 */
+            var cur = modOf(document.body.getAttribute('data-page') || '');
+            var html = '<div class="mod-strip"><div class="mod-pills">';
+            html += cur === 'HOME' ? HOME_PILL.replace('class="mod-pill"', 'class="mod-pill on"') : HOME_PILL;
+            for (var m = 0; m < XD.modIds.length; m++) html += pillHtml(XD.modIds[m], cur);
+            html += '<span class="mod-slider"></span></div></div>';
+            h1.insertAdjacentHTML('beforebegin', html);
+            var slider = container.querySelector('.mod-strip .mod-slider');
+            var pills = container.querySelectorAll('.mod-pill');
+            place(slider, pills);
+            bindPills(pills, slider);
         }
         if (document.body) {
             if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', buildStrip);
@@ -1227,10 +1349,20 @@
         }
     })();
 
-    /* ========== 模块就地放大（v1.5）：目录页图文课卡从原位浮起全屏预览 ========== */
+    /* ============================================================
+     * 模块就地放大（v1.5）：目录页图文课卡从原位"飞"成全屏预览
+     * 点击卡 → 卡片位置飞入舞台；Esc/关闭 → 反向飞回原位。
+     * 无 fetch 环境直接整页跳转（守护降级）。
+     * ============================================================ */
     (function () {
         if (typeof fetch === 'undefined') return; /* 无 fetch 环境直接整页跳转 */
-        var cache = {};
+
+        var cache = {}; /* url → {ok, html, title} */
+        var stage = null, thumbs = null, curHref = '', zoomCards = [];
+        var FLY_CSS = '.45s cubic-bezier(.22, .61, .36, 1)'; /* 飞出动画 */
+        var BACK_MS = 430; /* 飞回后卸载舞台 */
+        var DOC_BADGE = '图文课';
+
         function fetchDoc(url) {
             if (cache[url]) return Promise.resolve(cache[url]);
             return fetch(url, { cache: 'no-cache' }).then(function (r) {
@@ -1251,7 +1383,14 @@
                 return info;
             }).catch(function () { return null; });
         }
-        var stage = null, thumbs = null, curHref = '', zoomCards = [];
+
+        /* 卡片矩形 → 从卡片中心飞向视口中心的 transform */
+        function toStageTransform(rect) {
+            var vw = window.innerWidth || document.documentElement.clientWidth || 800;
+            var vh = window.innerHeight || document.documentElement.clientHeight || 600;
+            var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+            return 'translate(' + (cx - vw / 2) + 'px,' + (cy - vh / 2) + 'px) scale(' + (rect.width / vw) + ',' + (rect.height / vh) + ')';
+        }
         function buildUI() {
             stage = document.createElement('div');
             stage.className = 'zoom-stage';
@@ -1273,19 +1412,16 @@
             var body = stage.querySelector('.zoom-body');
             body.innerHTML = '<p class="empty-hint">正在加载…</p>';
             fetchDoc(href).then(function (info) {
-                if (!info || !info.ok) { location.href = href; return; }
+                if (!info || !info.ok) { location.href = href; return; } /* 不可预览 → 整页跳转 */
                 title.textContent = info.title.trim() || href;
                 body.innerHTML = info.html;
                 body.scrollTop = 0;
             });
         }
-        function openZoom(href, rect) {
-            curHref = href;
-            var grids = document.querySelectorAll('.card-grid');
-            for (var i = 0; i < grids.length; i++) grids[i].classList.add('zoom-on');
+        function renderThumbs() {
             var h = '';
             for (var k = 0; k < zoomCards.length; k++) {
-                h += '<button type="button" class="thumb' + (zoomCards[k].href === href ? ' on' : '') + '" data-href="' + zoomCards[k].href + '">' + XD.escapeHtml(zoomCards[k].title) + '</button>';
+                h += '<button type="button" class="thumb' + (zoomCards[k].href === curHref ? ' on' : '') + '" data-href="' + zoomCards[k].href + '">' + XD.escapeHtml(zoomCards[k].title) + '</button>';
             }
             thumbs.innerHTML = h;
             thumbs.style.display = '';
@@ -1298,15 +1434,34 @@
                     showDoc(th);
                 });
             });
-            var vw = window.innerWidth || document.documentElement.clientWidth || 800;
-            var vh = window.innerHeight || document.documentElement.clientHeight || 600;
-            var cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+        }
+        /* 收集当前卡片所在网格里所有"图文课"卡（供缩略图切换） */
+        function collectDocCards(grid) {
+            var cards = [];
+            var links = grid.querySelectorAll('.module-card');
+            for (var i = 0; i < links.length; i++) {
+                var li = links[i].querySelector('ul li');
+                if (li && li.textContent.indexOf(DOC_BADGE) >= 0) {
+                    cards.push({ href: links[i].getAttribute('href'), title: (links[i].querySelector('b') || { textContent: '' }).textContent || '' });
+                }
+            }
+            return cards;
+        }
+        function isDocCard(card) {
+            var badge = card.querySelector('ul li');
+            return !!(badge && badge.textContent.indexOf(DOC_BADGE) >= 0);
+        }
+        function openZoom(href, rect) {
+            curHref = href;
+            var grids = document.querySelectorAll('.card-grid');
+            for (var i = 0; i < grids.length; i++) grids[i].classList.add('zoom-on');
+            renderThumbs();
             stage.style.transformOrigin = '0 0';
-            stage.style.transform = 'translate(' + (cx - vw / 2) + 'px,' + (cy - vh / 2) + 'px) scale(' + (rect.width / vw) + ',' + (rect.height / vh) + ')';
+            stage.style.transform = toStageTransform(rect);
             stage.style.opacity = '0';
             stage.classList.add('open');
             function fly() {
-                stage.style.transition = 'transform .45s cubic-bezier(.22, .61, .36, 1), opacity .3s';
+                stage.style.transition = 'transform ' + FLY_CSS + ', opacity .3s';
                 stage.style.transform = 'translate(0,0) scale(1,1)';
                 stage.style.opacity = '1';
             }
@@ -1322,38 +1477,38 @@
             var links = document.querySelectorAll('.module-card');
             for (var j = 0; j < links.length; j++) if (links[j].getAttribute('href') === curHref) { orig = links[j]; break; }
             if (orig) {
-                var r = orig.getBoundingClientRect();
-                var vw = window.innerWidth || document.documentElement.clientWidth || 800;
-                var vh = window.innerHeight || document.documentElement.clientHeight || 600;
-                var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-                stage.style.transform = 'translate(' + (cx - vw / 2) + 'px,' + (cy - vh / 2) + 'px) scale(' + (r.width / vw) + ',' + (r.height / vh) + ')';
+                stage.style.transform = toStageTransform(orig.getBoundingClientRect());
                 stage.style.opacity = '0';
                 setTimeout(function () {
                     stage.classList.remove('open');
                     stage.style.transition = '';
                     stage.style.transform = '';
                     stage.style.opacity = '';
-                }, 430);
+                }, BACK_MS);
             } else {
                 stage.classList.remove('open');
             }
         }
+        /* 暴露给 zoom-capture.js（前置捕获拦截）的复用接口：
+         * 仅图文课卡判定 + 同一放大流程，避免两处逻辑漂移 */
+        if (window.XD) {
+            XD.zoom = {
+                isDoc: isDocCard,
+                openCard: function (c) {
+                    zoomCards = collectDocCards(c.closest('.card-grid') || c.parentElement);
+                    if (!stage) buildUI();
+                    openZoom(c.getAttribute('href'), c.getBoundingClientRect());
+                }
+            };
+        }
         document.addEventListener('click', function (e) {
             var c = e.target && e.target.closest ? e.target.closest('.module-card') : null;
             if (!c) return;
-            var badge = c.querySelector('ul li');
-            if (!badge || badge.textContent.indexOf('图文课') < 0) return; /* 测验/工具/目录整页跳转 */
+            if (!isDocCard(c)) return; /* 测验/工具/目录整页跳转 */
             e.preventDefault();
             var href = c.getAttribute('href');
             var grid = c.closest('.card-grid') || c.parentElement;
-            zoomCards = [];
-            var links = grid.querySelectorAll('.module-card');
-            for (var i = 0; i < links.length; i++) {
-                var li = links[i].querySelector('ul li');
-                if (li && li.textContent.indexOf('图文课') >= 0) {
-                    zoomCards.push({ href: links[i].getAttribute('href'), title: (links[i].querySelector('b') || { textContent: '' }).textContent || '' });
-                }
-            }
+            zoomCards = collectDocCards(grid);
             if (!stage) buildUI();
             openZoom(href, c.getBoundingClientRect());
         });
@@ -1362,83 +1517,749 @@
         });
     })();
 
-    /* ========== 页面初始化（面包屑 + 前后页 + 进度 + 代码复制） ========== */
-    function pageInit() {
-        XD.renderCrumbs();
-        XD.renderPrevNext();
-        // 高级化注入：返回顶部按钮 + 滚动渐显 + 首页首次导游（全站一次生效）
-        if (!document.querySelector('.to-top')) {
-            var topBtn = document.createElement('button');
-            topBtn.className = 'to-top';
-            topBtn.type = 'button';
-            topBtn.setAttribute('aria-label', '回到顶部');
-            topBtn.textContent = '↑';
-            document.body.appendChild(topBtn);
-            topBtn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
-            var onScroll = function () {
-                var y = window.pageYOffset || document.documentElement.scrollTop || 0;
-                topBtn.classList.toggle('show', y > 320);
-            };
-            window.addEventListener('scroll', onScroll, { passive: true });
-            onScroll();
+    /* ========== 首页仪表盘 XD.home（原 index.html 内联脚本） ========== */
+    /* 渲染职责拆为五个小函数；SYS/SITE 系统模块不参与学习进度展示 */
+    (function () {
+        function isSystemModule(mod) { return 'SYS SITE'.indexOf(mod.id) >= 0 && mod.id.length > 1; }
+
+        function bindSearch() {
+            var si = document.getElementById('searchInput');
+            var sb = document.getElementById('searchBtn');
+            if (si) si.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && window.XD && XD.search) XD.search.open();
+            });
+            if (sb) sb.addEventListener('click', function () {
+                if (window.XD && XD.search) XD.search.open();
+            });
         }
-        (function revealFx() {
-            var els = document.querySelectorAll('.reveal');
-            if (!els.length) return;
-            if ('IntersectionObserver' in window) {
-                var obs = new IntersectionObserver(function (es) {
-                    for (var i = 0; i < es.length; i++) {
-                        if (es[i].isIntersecting) { es[i].target.classList.add('in'); obs.unobserve(es[i].target); }
-                    }
-                }, { threshold: 0.12 });
-                for (var j = 0; j < els.length; j++) obs.observe(els[j]);
-            } else {
-                for (var k = 0; k < els.length; k++) els[k].classList.add('in');
+
+        // 等级卡（XP 等级 + 经验条）
+        function renderLevelCard() {
+            var lvBox = document.getElementById('homeLevel');
+            if (!lvBox) return;
+            var lv = XD.game.level();
+            lvBox.innerHTML =
+                '<div class="lv-card"><div class="lv-head">' +
+                '<span class="lv-badge">Lv' + lv.lv + ' · ' + XD.escapeHtml(lv.t) + '</span>' +
+                '<span class="lv-xp">' + lv.xp + ' XP</span></div>' +
+                '<div class="xp-bar"><i style="width:' + lv.pct + '%;"></i></div>' +
+                '<div class="lv-next">' + (lv.nextT ? '距「' + XD.escapeHtml(lv.nextT) + '」还差 ' + (lv.next - lv.xp) + ' XP' : '🎉 已达最高等级') + '</div></div>';
+        }
+
+        // 今日统计：今日学习 / 连续天数 / 已读页数 / 徽章数（全部从现有存储实时推导）
+        function renderTodayStats() {
+            var ts = document.getElementById('todayStats');
+            if (!ts) return;
+            var achN = 0, aList = XD.achieve.list();
+            for (var a = 0; a < aList.length; a++) if (aList[a].at) achN++;
+            ts.innerHTML =
+                '<span class="badge">📆 今日学习 ' + XD.studyLog.todayCount() + ' 次</span>' +
+                '<span class="badge">🔥 连续 ' + XD.studyLog.streakDays() + ' 天</span>' +
+                '<span class="badge">📖 已读 ' + XD.progress.count() + ' 页</span>' +
+                '<span class="badge">🏅 徽章 ' + achN + '/' + XD.ACHIEVEMENTS.length + ' 枚</span>';
+        }
+
+        // 进度环 + 进度条
+        function renderProgressRing() {
+            var pct = XD.progress.overall();
+            var ring = document.getElementById('progRing');
+            if (ring) ring.style.setProperty('--p', pct);
+            var pt = document.getElementById('progTxt');
+            if (pt) pt.textContent = pct + '%';
+            var pf = document.getElementById('progFill');
+            if (pf) pf.style.width = pct + '%';
+        }
+
+        // 继续学习卡：取 xd_read_v1 里最近读过的页面
+        function renderContinueCard() {
+            var cc = document.getElementById('continueCard');
+            if (!cc) return;
+            var all = XD.progress.all();
+            var bestF = '', bestAt = 0;
+            for (var k in all) {
+                if (Object.prototype.hasOwnProperty.call(all, k) && all[k] > bestAt) { bestAt = all[k]; bestF = k; }
             }
-        })();
-        if (XD.guide) {
-            var pf = document.body.getAttribute('data-page');
-            var hp0 = location.pathname || '';
-            var last0 = hp0.split('/').pop();
-            if ((!pf || pf === 'index.html') && (!last0 || last0 === '' || last0 === 'index.html')) XD.guide.maybe();
+            if (!bestF) {
+                cc.innerHTML = '<div class="card cont-card"><b>⏩ 继续学习</b>' +
+                    '<span>还没有学习记录——从下面任意一个模块开始，点进去随便读一课就好。</span>' +
+                    '<a class="btn" href="A.html">从模块 A 开始 →</a></div>';
+            } else {
+                var lastTitle = bestF;
+                for (var j = 0; j < XD.PAGES.length; j++) {
+                    if (XD.PAGES[j].f === bestF) { lastTitle = XD.PAGES[j].t; break; }
+                }
+                var mid = bestF.replace(/\.html$/, ''), modTxt = '';
+                var topM = mid.charAt(0).toUpperCase();
+                var modN = XD.node(topM);
+                if (modN) modTxt = '模块' + topM + ' · ' + XD.escapeHtml(modN.n);
+                cc.innerHTML = '<div class="card cont-card"><b>⏩ 继续学习</b>' +
+                    '<span>上次学到：<b>' + XD.escapeHtml(lastTitle) + '</b>' +
+                    (modTxt ? '<br><span style="font-size:12px;">' + modTxt + '</span>' : '') + '</span>' +
+                    '<a class="btn" href="' + bestF + '">接着学 →</a></div>';
+            }
         }
+
+        // 模块卡片（一级目录）
+        function renderModuleGrid() {
+            var grid = document.getElementById('modGrid');
+            if (!grid) return;
+            var html = '';
+            for (var i = 0; i < XD.TREE.length; i++) {
+                var mod = XD.TREE[i];
+                if (isSystemModule(mod)) continue;
+                var p = XD.progress.nodeProgress(mod);
+                html += '<a class="module-card" href="' + mod.f + '">' +
+                    '<span class="tag">' + (p === 100 ? '✅' : p + '%') + '</span>' +
+                    '<div class="mod-head"><span style="font-size:30px;">' + mod.icon + '</span><span class="mod-no">模块' + mod.id + '</span></div>' +
+                    '<b>' + XD.escapeHtml(mod.n) + '</b>' +
+                    '<span>' + XD.escapeHtml(mod.d || '') + '</span>' +
+                    '<ul><li>' + (mod.children ? mod.children.length + ' 个子模块' : '') + ' · 共 ' + XD.leafCount(mod) + ' 页内容</li>' +
+                    '<li>' + (p === 100 ? '<span class="done-flag">✅ 已完成</span>' : p > 0 ? '进行中 ' + p + '%' : '未开始') + '</li></ul>' +
+                    '</a>';
+            }
+            grid.innerHTML = html;
+        }
+
+        XD.home = {
+            init: function () {
+                bindSearch();
+                if (!window.XD) return;
+                renderLevelCard();
+                renderTodayStats();
+                renderProgressRing();
+                renderContinueCard();
+                renderModuleGrid();
+            }
+        };
+
+        // 与原内联脚本相同的时机：DOMContentLoaded（或已就绪时立即执行）
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function () { XD.home.init(); });
+        } else {
+            XD.home.init();
+        }
+    })();
+
+    /* ============================================================
+     * 打字速度测试 XD.D4（原 D4.html 内联 520 行 script 抽离）
+     * 生产行为逐条保留：语料 / 等级渐变 / 音效 / 限时 / 每日挑战 / 图表 / 分享卡 / 成就
+     * 修复：原内联脚本第 636/653 行引用未声明的 optRow（严格模式下点击模式页签即 ReferenceError），
+     *       本次将 optRow 纳入 IDS 契约声明。
+     * ============================================================ */
+    (function () {
+        'use strict';
+
+        /* ---- 主题色（运行时读 CSS 变量，跟随暗色/金色主题） ---- */
+        var CS = getComputedStyle(document.documentElement);
+        function cssVar(name, fallback) {
+            var v = CS.getPropertyValue(name).trim();
+            return v || fallback || '#667eea';
+        }
+        var C_BLUE = cssVar('--blue', '#667eea');
+        var C_GREEN = cssVar('--green', '#11998e');
+        var C_RED = cssVar('--red', '#ff6b6b');
+        var C_DIM = cssVar('--dim', '#8b93a7');
+        var C_PURPLE = cssVar('--purple', C_BLUE);
+
+        /* ---- 语料库（与生产内联脚本逐字一致：中易 15 / 中难 15 / 中困难 15 / 英 14 / 长文 6） ---- */
+        var POOLS = {
+            cn: {
+                easy: [
+                    '床前明月光。', '春眠不觉晓。', '白日依山尽。', '粒粒皆辛苦。', '天涯共此时。',
+                    '欲穷千里目。', '疑是地上霜。', '处处闻啼鸟。', '低头思故乡。', '更上一层楼。',
+                    '海内存知己。', '会当凌绝顶。', '一览众山小。', '相逢何必曾相识。', '润物细无声。'
+                ],
+                mid: [
+                    '光阴似箭，日月如梭，珍惜当下每一天。',
+                    '生活不止眼前的苟且，还有诗和远方。',
+                    '纸上得来终觉浅，绝知此事要躬行。',
+                    '长风破浪会有时，直挂云帆济沧海。',
+                    '天下难事必作于易，天下大事必作于细。',
+                    '问渠那得清如许，为有源头活水来。',
+                    '海内存知己，天涯若比邻。',
+                    '千里之行，始于足下；九层之台，起于累土。',
+                    '路漫漫其修远兮，吾将上下而求索。',
+                    '业精于勤，荒于嬉；行成于思，毁于随。',
+                    '读书破万卷，下笔如有神。',
+                    '宝剑锋从磨砺出，梅花香自苦寒来。',
+                    '山重水复疑无路，柳暗花明又一村。',
+                    '沉舟侧畔千帆过，病树前头万木春。',
+                    '欲把西湖比西子，淡妆浓抹总相宜。'
+                ],
+                hard: [
+                    '真正的平静，不是避开车马喧嚣，而是在心中修篱种菊。',
+                    '所谓天才，不过是把别人喝咖啡的工夫用在了学习上。',
+                    '世界上最宽阔的是海洋，比海洋更宽阔的是人的胸怀。',
+                    '不登高山，不知天之高也；不临深溪，不知地之厚也。',
+                    '志不强者智不达，言不信者行不果。',
+                    '学而不思则罔，思而不学则殆。',
+                    '知之者不如好之者，好之者不如乐之者。',
+                    '三更灯火五更鸡，正是男儿读书时。',
+                    '锲而舍之，朽木不折；锲而不舍，金石可镂。',
+                    '博学之，审问之，慎思之，明辨之，笃行之。',
+                    '穷则独善其身，达则兼济天下。',
+                    '老骥伏枥，志在千里；烈士暮年，壮心不已。',
+                    '千磨万击还坚劲，任尔东西南北风。',
+                    '不畏浮云遮望眼，自缘身在最高层。',
+                    '先天下之忧而忧，后天下之乐而乐。'
+                ]
+            },
+            en: [
+                'Practice makes perfect.',
+                'Where there is a will, there is a way.',
+                'Actions speak louder than words.',
+                'Every cloud has a silver lining.',
+                'The early bird catches the worm.',
+                'Knowledge is power.',
+                'Time and tide wait for no man.',
+                'Well begun is half done.',
+                'Rome was not built in a day.',
+                'Better late than never.',
+                'The best way to predict the future is to create it.',
+                'Stay hungry, stay foolish.',
+                'Think different and dream big.',
+                'Success is the sum of small efforts repeated day in and day out.'
+            ],
+            long: [
+                '燕子去了，有再来的时候；杨柳枯了，有再青的时候；桃花谢了，有再开的时候。但是，聪明的，你告诉我，我们的日子为什么一去不复返呢？',
+                '生命的意义不在于长度，而在于深度。我们无法决定生命的起点，却可以决定如何度过每一个今天，让每一天都过得充实而有意义。',
+                '读书是一种习惯，更是一种享受。当文字在指尖流淌，当思想在脑海碰撞，你会发现自己正慢慢变得更辽阔、更从容。',
+                '科技改变生活，创新驱动未来。人工智能正在走进千家万户，为人类带来前所未有的便利，同时也提醒我们保持思考与温度。',
+                '清晨的阳光透过窗帘洒进房间，空气里飘着淡淡的咖啡香。打开笔记本，写下今天的计划，平凡的日子也要认真对待。',
+                '少壮不努力，老大徒伤悲。一寸光阴一寸金，寸金难买寸光阴。把握当下，珍惜时间，才能不负青春、不负自己。'
+            ]
+        };
+
+        /* ---- 本地存储键（统一 xd_ 前缀，读写走 XD.storage） ---- */
+        var KEYS = { best: 'xd_typing_best_v1', rec: 'xd_typing_recs_v1', daily: 'xd_typing_daily_v1', sound: 'xd_typing_sound_v1' };
+
+        /* ---- 等级（青铜 0 → 王者 120，背景随主题渐变） ---- */
+        var RANKS = [
+            { n: '青铜', min: 0, bg: C_DIM },
+            { n: '白银', min: 30, bg: 'linear-gradient(135deg,' + C_DIM + ',' + cssVar('--line', '#cfd8e3') + ')' },
+            { n: '黄金', min: 50, bg: cssVar('--title-grad', 'linear-gradient(135deg,#ffd54f,#f9a825)') },
+            { n: '铂金', min: 70, bg: cssVar('--back-grad', 'linear-gradient(135deg,#80deea,#0097a7)') },
+            { n: '钻石', min: 90, bg: cssVar('--btn-grad', 'linear-gradient(135deg,#b39ddb,#5e35b1)') },
+            { n: '王者', min: 120, bg: 'linear-gradient(135deg,' + C_BLUE + ',' + C_PURPLE + ')' }
+        ];
+
+        /* ---- 纯函数 ---- */
+        function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
+        function todayStr() {
+            var d = new Date();
+            return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+        }
+        function rankOf(wpm) {
+            for (var i = RANKS.length - 1; i >= 0; i--) { if (wpm >= RANKS[i].min) return RANKS[i]; }
+            return RANKS[0];
+        }
+        function poolFor(src, diff) {
+            if (src === 'en') return POOLS.en;
+            if (diff === 'easy') return POOLS.cn.easy;
+            if (diff === 'hard') return POOLS.cn.hard;
+            return POOLS.cn.mid;
+        }
+        function grade(target, typed) {
+            var correct = 0, errors = [];
+            for (var i = 0; i < Math.min(typed.length, target.length); i++) {
+                if (typed[i] === target[i]) { correct++; }
+                else if (errors.length < 10) errors.push({ in: typed[i], want: target[i] });
+            }
+            if (typed.length < target.length && typed.length > 0 && errors.length < 10) {
+                errors.push({ in: '（漏打）', want: target.slice(typed.length, typed.length + 1) });
+            }
+            return { correct: correct, errors: errors };
+        }
+        function toWpm(correct, minutes) { return Math.round((correct / 5) / minutes); }
+        function toAccuracy(correct, totalTyped) { return Math.round(correct / totalTyped * 100); }
+
+        /* ---- DOM 契约（26 个具名元素，含修复的 optRow；模式页签按类名收集） ---- */
+        var IDS = ['targetText', 'typeInput', 'startBtn', 'doneBtn', 'resetBtn', 'shareBtn', 'speedVal', 'accVal', 'timeVal', 'leftVal', 'bestLine', 'resultMsg', 'errWrap', 'errList', 'rankBadge', 'rankProgress', 'diffSel', 'srcSel', 'soundChk', 'histChart', 'recordsList', 'dailySentence', 'dailyStatus', 'dailyTag', 'dailyUseBtn', 'optRow'];
+        var dom = {}, modeTabs = [];
+        function bindDom() {
+            for (var i = 0; i < IDS.length; i++) dom[IDS[i]] = document.getElementById(IDS[i]);
+        }
+
+        /* ---- 状态机 ---- */
+        var state = {
+            current: '', currentSrc: '中文名句',
+            mode: 'free', diff: 'mid', src: 'cn',
+            startTime: 0, running: false, timerId: null,
+            limitSec: 60, limitLeft: 60,
+            lastResult: null, soundOn: true, badBeeped: false
+        };
+
+        /* ---- 音效 ---- */
+        function beep(freq, dur, vol) {
+            if (!state.soundOn) return;
+            try {
+                var AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return;
+                if (!beep._ctx) beep._ctx = new AC();
+                var ctx = beep._ctx;
+                var o = ctx.createOscillator();
+                var g = ctx.createGain();
+                o.type = 'sine'; o.frequency.value = freq;
+                g.gain.setValueAtTime((vol || 0.12), ctx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (dur || 0.05));
+                o.connect(g); g.connect(ctx.destination);
+                o.start(); o.stop(ctx.currentTime + (dur || 0.05));
+            } catch (e) {}
+        }
+        function playDone() { beep(523, 0.12, 0.15); setTimeout(function () { beep(659, 0.12, 0.15); }, 130); setTimeout(function () { beep(784, 0.2, 0.15); }, 260); }
+
+        /* ---- 视图：等级 ---- */
+        function loadBest() {
+            var best = XD.storage.get(KEYS.best) || 0;
+            var lv = rankOf(best);
+            dom.rankBadge.textContent = lv.n;
+            dom.rankBadge.style.background = lv.bg;
+            var next = null;
+            for (var i = 0; i < RANKS.length; i++) { if (RANKS[i].min > best) { next = RANKS[i]; break; } }
+            dom.rankProgress.textContent = next ? ('距「' + next.n + '」还需 ' + (next.min - best) + ' 字/分钟') : '已达最高等级 👑';
+            dom.bestLine.textContent = best > 0 ? '🏆 历史最佳：' + best + ' 字/分钟' : '暂无最佳成绩，快去创造纪录！';
+        }
+
+        /* ---- 视图：句子 ---- */
+        function pickSentence() {
+            var t;
+            if (state.mode === 'long') { t = pick(POOLS.long); state.currentSrc = '长文段落'; }
+            else {
+                var p = poolFor(state.src, state.diff);
+                t = pick(p);
+                state.currentSrc = state.src === 'en' ? '英文句子' : ('中文名句·' + (state.diff === 'easy' ? '简单' : state.diff === 'hard' ? '困难' : '中等'));
+            }
+            state.current = t;
+            return t;
+        }
+        function renderText() {
+            var html = '';
+            for (var i = 0; i < state.current.length; i++) {
+                html += '<span data-i="' + i + '">' + (state.current[i] === ' ' ? '&nbsp;' : state.current[i]) + '</span>';
+            }
+            dom.targetText.innerHTML = html;
+            var sp = dom.targetText.querySelectorAll('span');
+            if (sp.length) sp[0].className = 'next';
+        }
+
+        /* ---- 视图：每日挑战（按日期哈希选句，避免同日随机漂移） ---- */
+        function dailyPick() {
+            var seed = todayStr();
+            var h = 0;
+            for (var i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+            var pool = POOLS.cn.easy.concat(POOLS.cn.mid, POOLS.cn.hard);
+            return pool[h % pool.length];
+        }
+        function renderDaily() {
+            var t = dailyPick();
+            dom.dailySentence.textContent = t;
+            if (XD.storage.get(KEYS.daily) === todayStr()) {
+                dom.dailyTag.textContent = '✅ 今日已完成';
+                dom.dailyTag.classList.add('daily-done');
+                dom.dailyStatus.textContent = '今天的挑战句已完成，明天再来～';
+                dom.dailyUseBtn.disabled = true;
+            } else {
+                dom.dailyTag.textContent = '🔥 今日挑战';
+                dom.dailyStatus.textContent = '练完这句（准确率 ≥85%）即完成今日挑战';
+                dom.dailyUseBtn.disabled = false;
+            }
+        }
+
+        /* ---- 流程：新一轮 ---- */
+        function newSentence() {
+            if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+            state.running = false;
+            state.startTime = 0;
+            state.limitLeft = state.limitSec;
+            pickSentence();
+            renderText();
+            dom.typeInput.value = '';
+            dom.typeInput.disabled = false;
+            dom.resultMsg.textContent = '';
+            dom.resultMsg.className = '';
+            dom.errWrap.classList.remove('show');
+            dom.errList.innerHTML = '';
+            dom.shareBtn.disabled = true;
+            state.lastResult = null;
+            dom.timeVal.textContent = '0s';
+            dom.speedVal.textContent = '0';
+            dom.accVal.textContent = '0%';
+            dom.leftVal.textContent = state.mode === 'time' ? state.limitLeft + 's' : '—';
+            dom.startBtn.textContent = '▶ 开始';
+            dom.startBtn.disabled = false;
+            dom.doneBtn.disabled = true;
+            dom.typeInput.placeholder = '点击「开始」后在这里打字';
+        }
+
+        /* ---- 流程：开始 / 暂停 ---- */
+        function startRun() {
+            if (state.running) {
+                state.running = false;
+                if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+                dom.startBtn.textContent = '▶ 继续';
+                return;
+            }
+            state.running = true;
+            if (!state.startTime) state.startTime = Date.now();
+            dom.typeInput.placeholder = '开始打字吧，完成后按回车或点「完成」';
+            dom.startBtn.textContent = '⏸ 暂停';
+            dom.doneBtn.disabled = false;
+            dom.typeInput.focus();
+            if (state.mode === 'time') {
+                state.limitLeft = state.limitSec;
+                dom.leftVal.textContent = state.limitLeft + 's';
+                if (state.timerId) clearInterval(state.timerId);
+                state.timerId = setInterval(function () {
+                    state.limitLeft--;
+                    dom.leftVal.textContent = state.limitLeft + 's';
+                    if (state.limitLeft <= 0) finish();
+                }, 1000);
+            } else {
+                if (state.timerId) clearInterval(state.timerId);
+                state.timerId = setInterval(function () {
+                    dom.timeVal.textContent = Math.floor((Date.now() - state.startTime) / 1000) + 's';
+                }, 500);
+            }
+        }
+
+        /* ---- 流程：实时判定 ---- */
+        function updateInput() {
+            if (!state.running) return;
+            var v = dom.typeInput.value;
+            var spans = dom.targetText.querySelectorAll('span');
+            var allOk = true;
+            for (var i = 0; i < spans.length; i++) {
+                spans[i].className = '';
+                if (i < v.length) {
+                    if (v[i] === state.current[i]) { spans[i].className = 'ok'; }
+                    else { spans[i].className = 'bad'; allOk = false; if (!state.badBeeped) { beep(330, 0.05, 0.08); state.badBeeped = true; } }
+                }
+            }
+            if (v.length > 0 && v[v.length - 1] === state.current[v.length - 1]) beep(660, 0.03, 0.06);
+            state.badBeeped = v.length > 0 && v[v.length - 1] !== state.current[v.length - 1];
+            if (v.length < spans.length) spans[v.length].className = 'next';
+            if (allOk && v.length >= spans.length) finish();
+        }
+
+        /* ---- 流程：结算 ---- */
+        function finish() {
+            if (!state.running && !state.startTime) return;
+            if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+            state.running = false;
+            var v = dom.typeInput.value;
+            var secs = Math.max((Date.now() - state.startTime) / 1000, 0.1);
+            var minutes = Math.max(secs / 60, 0.001);
+            var r = grade(state.current, v);
+            var totalTyped = Math.max(v.length, 1);
+            var acc = toAccuracy(r.correct, totalTyped);
+            var wpm = toWpm(r.correct, minutes);
+            dom.timeVal.textContent = Math.round(secs) + 's';
+            dom.accVal.textContent = acc + '%';
+            dom.speedVal.textContent = wpm;
+            dom.leftVal.textContent = state.mode === 'time' ? '0s' : '—';
+            dom.doneBtn.disabled = true;
+            dom.startBtn.textContent = '▶ 开始';
+            dom.resultMsg.className = acc >= 85 ? 'good' : '';
+            dom.resultMsg.textContent = '本次速度 ' + wpm + ' 字/分钟，准确率 ' + acc + '%' + (acc >= 85 ? ' 🎉' : '，继续加油！');
+            if (acc >= 85) {
+                var best = XD.storage.get(KEYS.best) || 0;
+                if (wpm > best) { XD.storage.set(KEYS.best, wpm); loadBest(); dom.resultMsg.textContent += ' 刷新最佳成绩！🏆'; }
+                if (window.XD && XD.achieve) {
+                    if (wpm >= 80) XD.achieve.unlock('typing_80');
+                    if (wpm >= 40) XD.achieve.unlock('typing_40');
+                }
+                if (window.XD && XD.studyLog) XD.studyLog.add({ type: 'practice', itemId: 'D4', mod: 'D' });
+            }
+            var recs = XD.storage.get(KEYS.rec) || [];
+            recs.unshift({ w: wpm, a: acc, s: Math.round(secs), d: todayStr(), m: state.mode, src: state.currentSrc });
+            XD.storage.set(KEYS.rec, recs.slice(0, 20));
+            renderRecords(); drawChart();
+            dom.errList.innerHTML = '';
+            if (r.errors.length) {
+                for (var k = 0; k < r.errors.length; k++) {
+                    var d = document.createElement('span');
+                    d.className = 'err-item';
+                    d.innerHTML = '输「' + r.errors[k].in + '」应为 <b>「' + r.errors[k].want + '」</b>';
+                    dom.errList.appendChild(d);
+                }
+                dom.errWrap.classList.add('show');
+            }
+            if (state.mode === 'free' && state.current === dailyPick() && acc >= 85 && XD.storage.get(KEYS.daily) !== todayStr()) {
+                XD.storage.set(KEYS.daily, todayStr());
+                renderDaily();
+                dom.resultMsg.textContent += ' ✅ 今日挑战完成！';
+            }
+            state.lastResult = { wpm: wpm, acc: acc, secs: Math.round(secs), mode: state.mode };
+            dom.shareBtn.disabled = false;
+            playDone();
+        }
+
+        /* ---- 视图：历史记录与折线图 ---- */
+        function renderRecords() {
+            var recs = XD.storage.get(KEYS.rec) || [];
+            dom.recordsList.innerHTML = '';
+            if (!recs.length) { dom.recordsList.textContent = '还没有历史记录，快去测一次吧～'; return; }
+            recs.slice(0, 10).forEach(function (r) {
+                var d = document.createElement('div');
+                d.textContent = r.d + ' ｜ ' + r.w + ' 字/分钟 ｜ 准确率 ' + r.a + '% ｜ ' + r.s + 's ｜ ' + (r.m === 'time' ? '限时' : r.m === 'long' ? '长文' : '自由') + ' ｜ ' + (r.src || '');
+                dom.recordsList.appendChild(d);
+            });
+        }
+        function drawChart() {
+            var c = dom.histChart;
+            var ctx = c.getContext('2d');
+            // 无 Canvas 环境（少数内嵌浏览器）只跳过绘图，历史数据本身不受影响
+            if (!ctx) { if (c.parentNode) c.parentNode.style.display = 'none'; return; }
+            var W = c.width, H = c.height;
+            ctx.clearRect(0, 0, W, H);
+            var recs = XD.storage.get(KEYS.rec) || [];
+            if (!recs.length) {
+                ctx.fillStyle = C_DIM;
+                ctx.font = '14px "Microsoft YaHei"';
+                ctx.textAlign = 'center';
+                ctx.fillText('暂无数据，测一次就会出现在这里', W / 2, H / 2);
+                return;
+            }
+            var data = recs.slice(0, 20).reverse().map(function (r) { return r.w; });
+            var max = Math.max.apply(null, data.concat([20]));
+            var n = data.length;
+            ctx.strokeStyle = 'rgba(102,126,234,.15)';
+            ctx.lineWidth = 1;
+            for (var g = 0; g <= 4; g++) {
+                var gy = H - (g / 4) * (H - 30) - 15;
+                ctx.beginPath(); ctx.moveTo(30, gy); ctx.lineTo(W - 10, gy); ctx.stroke();
+                ctx.fillStyle = C_DIM; ctx.font = '10px "Microsoft YaHei"'; ctx.textAlign = 'left';
+                ctx.fillText(String(Math.round(max * g / 4)), 4, gy + 3);
+            }
+            ctx.strokeStyle = C_BLUE;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            for (var i = 0; i < n; i++) {
+                var x = 30 + (W - 50) * (n === 1 ? 0.5 : i / (n - 1));
+                var y = H - (data[i] / max) * (H - 40) - 15;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            for (var j = 0; j < n; j++) {
+                var x2 = 30 + (W - 50) * (n === 1 ? 0.5 : j / (n - 1));
+                var y2 = H - (data[j] / max) * (H - 40) - 15;
+                ctx.beginPath();
+                ctx.arc(x2, y2, 3.5, 0, Math.PI * 2);
+                ctx.fillStyle = C_PURPLE;
+                ctx.fill();
+            }
+        }
+
+        /* ---- 视图：分享成绩卡 ---- */
+        function shareCard() {
+            if (!state.lastResult) return;
+            var lv = rankOf(state.lastResult.wpm);
+            var c = document.createElement('canvas');
+            c.width = 640; c.height = 360;
+            var ctx = c.getContext('2d');
+            // 无 Canvas 环境生成不了图片卡，降级为只复制成绩文案
+            var txt = '我在「现代化·知识学习站」打字测试打出 ' + state.lastResult.wpm + ' 字/分钟（准确率 ' + state.lastResult.acc + '%），等级 ' + lv.n + '，快来挑战我！';
+            if (!ctx) {
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(function () { copyFallback(txt); });
+                else copyFallback(txt);
+                dom.resultMsg.textContent = '成绩文案已复制 📋（当前环境不支持生成图片卡）';
+                return;
+            }
+            var g = ctx.createLinearGradient(0, 0, 640, 360);
+            g.addColorStop(0, C_BLUE); g.addColorStop(0.5, C_PURPLE); g.addColorStop(1, cssVar('--red', '#f093fb'));
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, 640, 360);
+            ctx.fillStyle = 'rgba(255,255,255,.12)';
+            ctx.beginPath(); ctx.arc(560, 60, 120, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(80, 320, 90, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 30px "Microsoft YaHei"';
+            ctx.textAlign = 'center';
+            ctx.fillText('⌨️ 现代化·知识学习站 · 打字测试', 320, 56);
+            ctx.font = 'bold 88px "Segoe UI"';
+            ctx.fillText(String(state.lastResult.wpm), 320, 190);
+            ctx.font = '24px "Microsoft YaHei"';
+            ctx.fillText('字/分钟', 320, 226);
+            ctx.font = '22px "Microsoft YaHei"';
+            ctx.fillText('准确率 ' + state.lastResult.acc + '% ｜ 用时 ' + state.lastResult.secs + 's ｜ 等级 ' + lv.n, 320, 276);
+            ctx.fillText(todayStr() + ' · bishihuihuang.github.io/xiandaihua', 320, 316);
+            var url = c.toDataURL('image/png');
+            var w = window.open('');
+            if (w) {
+                var img = w.document.createElement('img');
+                img.style.maxWidth = '100%';
+                img.setAttribute('src', url);
+                w.document.body.appendChild(img);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(txt).catch(function () { copyFallback(txt); });
+            } else { copyFallback(txt); }
+            dom.resultMsg.textContent = '成绩卡已生成（新窗口），文案已复制 📋';
+        }
+        function copyFallback(txt) {
+            var ta = document.createElement('textarea');
+            ta.value = txt; document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); } catch (e2) {}
+            document.body.removeChild(ta);
+        }
+
+        /* ---- 事件绑定 ---- */
+        function bindEvents() {
+            for (var i = 0; i < modeTabs.length; i++) {
+                (function (t) {
+                    t.addEventListener('click', function () {
+                        for (var j = 0; j < modeTabs.length; j++) modeTabs[j].classList.remove('active');
+                        t.classList.add('active');
+                        state.mode = t.getAttribute('data-mode');
+                        dom.optRow.style.display = state.mode === 'long' ? 'none' : '';
+                        newSentence();
+                    });
+                })(modeTabs[i]);
+            }
+            dom.diffSel.addEventListener('change', function () { state.diff = dom.diffSel.value; newSentence(); });
+            dom.srcSel.addEventListener('change', function () { state.src = dom.srcSel.value; newSentence(); });
+            dom.soundChk.addEventListener('change', function () { state.soundOn = dom.soundChk.checked; XD.storage.set(KEYS.sound, state.soundOn ? '1' : '0'); });
+            dom.startBtn.addEventListener('click', startRun);
+            dom.doneBtn.addEventListener('click', finish);
+            dom.typeInput.addEventListener('input', updateInput);
+            dom.typeInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); finish(); } });
+            dom.resetBtn.addEventListener('click', newSentence);
+            dom.shareBtn.addEventListener('click', shareCard);
+            dom.dailyUseBtn.addEventListener('click', function () {
+                state.mode = 'free';
+                for (var j = 0; j < modeTabs.length; j++) modeTabs[j].classList.remove('active');
+                document.querySelector('.mode-tab[data-mode="free"]').classList.add('active');
+                dom.optRow.style.display = '';
+                if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+                state.running = false;
+                state.startTime = 0;
+                state.current = dailyPick();
+                state.currentSrc = '今日挑战';
+                renderText();
+                dom.typeInput.value = '';
+                dom.typeInput.disabled = false;
+                dom.resultMsg.textContent = '';
+                dom.resultMsg.className = '';
+                dom.errWrap.classList.remove('show');
+                dom.errList.innerHTML = '';
+                dom.shareBtn.disabled = true;
+                dom.timeVal.textContent = '0s'; dom.speedVal.textContent = '0'; dom.accVal.textContent = '0%';
+                dom.leftVal.textContent = '—';
+                dom.startBtn.textContent = '▶ 开始';
+                dom.startBtn.disabled = false;
+                dom.doneBtn.disabled = true;
+                dom.typeInput.placeholder = '点击「开始」后在这里打字';
+            });
+        }
+
+        /* ---- 对外接口（D4.html 于 DOMContentLoaded 调用；仅本页存在 #targetText 才启动） ---- */
+        XD.D4 = {
+            init: function () {
+                if (!document.getElementById('targetText')) return;
+                bindDom();
+                modeTabs = document.querySelectorAll('.mode-tab');
+                var snd = XD.storage.get(KEYS.sound);
+                state.soundOn = snd === null ? true : snd === '1';
+                dom.soundChk.checked = state.soundOn;
+                loadBest();
+                renderDaily();
+                newSentence();
+                renderRecords();
+                drawChart();
+                bindEvents();
+            }
+        };
+    })();
+
+    /* ========== 页面初始化（面包屑 + 前后页 + 进度 + 代码复制） ========== */
+    /* 职责拆分为五个小函数：逐个守卫、互不牵连，任何一项失败都不影响其它项 */
+
+    function injectToTop() {
+        if (document.querySelector('.to-top')) return;
+        var topBtn = document.createElement('button');
+        topBtn.className = 'to-top';
+        topBtn.type = 'button';
+        topBtn.setAttribute('aria-label', '回到顶部');
+        topBtn.textContent = '↑';
+        document.body.appendChild(topBtn);
+        topBtn.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+        var onScroll = function () {
+            var y = window.pageYOffset || document.documentElement.scrollTop || 0;
+            topBtn.classList.toggle('show', y > 320);
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+    }
+
+    function initRevealFx() {
+        var els = document.querySelectorAll('.reveal');
+        if (!els.length) return;
+        if ('IntersectionObserver' in window) {
+            var obs = new IntersectionObserver(function (es) {
+                for (var i = 0; i < es.length; i++) {
+                    if (es[i].isIntersecting) { es[i].target.classList.add('in'); obs.unobserve(es[i].target); }
+                }
+            }, { threshold: 0.12 });
+            for (var j = 0; j < els.length; j++) obs.observe(els[j]);
+        } else {
+            for (var k = 0; k < els.length; k++) els[k].classList.add('in');
+        }
+    }
+
+    function maybeRunGuide() {
+        if (!XD.guide) return;
+        var pf = document.body.getAttribute('data-page');
+        var hp0 = location.pathname || '';
+        var last0 = hp0.split('/').pop();
+        if ((!pf || pf === 'index.html') && (!last0 || last0 === '' || last0 === 'index.html')) XD.guide.maybe();
+    }
+
+    function currentPage() {
         var f = document.body.getAttribute('data-page');
         var kind = document.body.getAttribute('data-kind') || 'doc';
+        return { f: f, kind: kind };
+    }
+
+    function injectPageActions(page) {
         // 适老操作条：朗读 / 收藏 / 打印（门户页除外，全站 JS 注入）
-        if (f && f !== 'index.html' && f !== '1.html') {
-            var hdr = document.querySelector('.site-header');
-            var badge = hdr ? hdr.querySelector('.mod-badge') : null;
-            if (badge) {
-                var canSpeak = kind === 'doc' && ('speechSynthesis' in window);
-                var ah = '<span class="page-actions">';
-                if (canSpeak) ah += '<button type="button" class="page-act" data-act="speak" title="朗读本页">🔊</button>';
-                ah += '<button type="button" class="page-act" data-act="fav" title="收藏本页"><span class="fav-ic">' + (XD.fav.has(f) ? '★' : '☆') + '</span></button>';
-                ah += '<button type="button" class="page-act" data-act="print" title="打印本页">🖨</button></span>';
-                badge.insertAdjacentHTML('afterend', ah);
-                var abar = hdr.querySelector('.page-actions');
-                if (abar) abar.addEventListener('click', function (e) {
-                    var b = e.target.closest('.page-act');
-                    if (!b) return;
-                    var act = b.getAttribute('data-act');
-                    if (act === 'print') { window.print(); }
-                    else if (act === 'fav') {
-                        var on = XD.fav.toggle(f);
-                        var ic = b.querySelector('.fav-ic');
-                        if (ic) ic.textContent = on ? '★' : '☆';
-                        XD.showToast(on ? '⭐ 已收藏，可在仪表盘「我的收藏」里找到' : '已取消收藏');
-                    }
-                    else if (act === 'speak') { XD.speak.toggle(); }
-                });
+        if (!page.f || page.f === 'index.html' || page.f === '1.html') return;
+        var hdr = document.querySelector('.site-header');
+        var badge = hdr ? hdr.querySelector('.mod-badge') : null;
+        if (!badge) return;
+        var canSpeak = page.kind === 'doc' && ('speechSynthesis' in window);
+        var ah = '<span class="page-actions">';
+        if (canSpeak) ah += '<button type="button" class="page-act" data-act="speak" title="朗读本页">🔊</button>';
+        ah += '<button type="button" class="page-act" data-act="fav" title="收藏本页"><span class="fav-ic">' + (XD.fav.has(page.f) ? '★' : '☆') + '</span></button>';
+        ah += '<button type="button" class="page-act" data-act="print" title="打印本页">🖨</button></span>';
+        badge.insertAdjacentHTML('afterend', ah);
+        var abar = hdr.querySelector('.page-actions');
+        if (abar) abar.addEventListener('click', function (e) {
+            var b = e.target.closest('.page-act');
+            if (!b) return;
+            var act = b.getAttribute('data-act');
+            if (act === 'print') { window.print(); }
+            else if (act === 'fav') {
+                var on = XD.fav.toggle(page.f);
+                var ic = b.querySelector('.fav-ic');
+                if (ic) ic.textContent = on ? '★' : '☆';
+                XD.showToast(on ? '⭐ 已收藏，可在仪表盘「我的收藏」里找到' : '已取消收藏');
             }
-        }
-        if (XD.eyeCare) XD.eyeCare.start();
-        if (f && kind !== 'dir') {
-            XD.progress.markRead(f);
-            var id = f.replace(/\.html$/, '');
+            else if (act === 'speak') { XD.speak.toggle(); }
+        });
+    }
+
+    function recordVisit(page) {
+        // 内容页/测验/工具：记进度 + 学习日志 + 成就复核（目录页只读不记）
+        if (page.f && page.kind !== 'dir') {
+            XD.progress.markRead(page.f);
+            var id = page.f.replace(/\.html$/, '');
             var top = id.charAt(0).toUpperCase();
-            if (XD.modIds.indexOf(top) >= 0) XD.studyLog.add({ type: kind === 'quiz' ? 'quiz' : kind === 'tool' ? 'practice' : 'read', itemId: id, mod: top });
+            if (XD.modIds.indexOf(top) >= 0) XD.studyLog.add({ type: page.kind === 'quiz' ? 'quiz' : page.kind === 'tool' ? 'practice' : 'read', itemId: id, mod: top });
             XD.achieve.checkProgress(XD.progress.all());
         }
+    }
+
+    function attachCopyButtons() {
         var blocks = document.querySelectorAll('.code-block');
         for (var i = 0; i < blocks.length; i++) {
             (function (b) {
@@ -1450,6 +2271,19 @@
                 b.appendChild(btn);
             })(blocks[i]);
         }
+    }
+
+    function pageInit() {
+        XD.renderCrumbs();
+        XD.renderPrevNext();
+        injectToTop();
+        initRevealFx();
+        maybeRunGuide();
+        var page = currentPage();
+        injectPageActions(page);
+        if (XD.eyeCare) XD.eyeCare.start();
+        recordVisit(page);
+        attachCopyButtons();
     }
     if (document.body && document.readyState !== 'loading') {
         pageInit();

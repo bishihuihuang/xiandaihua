@@ -9,6 +9,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#667eea">
 <link rel="stylesheet" href="common.css">
+<script defer src="zoom-capture.js"></script>
 <script defer src="common.js"></script>
 <script defer src="theme.js"></script>
 <script defer src="xd-features.js"></script>
@@ -82,99 +83,6 @@
     </div>
 </main>
 
-<script>
-(function () {
-    document.addEventListener('DOMContentLoaded', function () {
-        var si = document.getElementById('searchInput');
-        var sb = document.getElementById('searchBtn');
-        if (si) si.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' && window.XD && XD.search) XD.search.open();
-        });
-        if (sb) sb.addEventListener('click', function () {
-            if (window.XD && XD.search) XD.search.open();
-        });
-
-        if (!window.XD) return;
-
-        // 等级卡（XP 等级 + 经验条）
-        var lv = XD.game.level();
-        var lvBox = document.getElementById('homeLevel');
-        if (lvBox) lvBox.innerHTML =
-            '<div class="lv-card"><div class="lv-head">' +
-            '<span class="lv-badge">Lv' + lv.lv + ' · ' + XD.escapeHtml(lv.t) + '</span>' +
-            '<span class="lv-xp">' + lv.xp + ' XP</span></div>' +
-            '<div class="xp-bar"><i style="width:' + lv.pct + '%;"></i></div>' +
-            '<div class="lv-next">' + (lv.nextT ? '距「' + XD.escapeHtml(lv.nextT) + '」还差 ' + (lv.next - lv.xp) + ' XP' : '🎉 已达最高等级') + '</div></div>';
-
-        // 今日统计：今日学习 / 连续天数 / 已读页数 / 徽章数（全部从现有存储实时推导）
-        var ts = document.getElementById('todayStats');
-        if (ts) {
-            var achN = 0, aList = XD.achieve.list();
-            for (var a = 0; a < aList.length; a++) if (aList[a].at) achN++;
-            ts.innerHTML =
-                '<span class="badge">📆 今日学习 ' + XD.studyLog.todayCount() + ' 次</span>' +
-                '<span class="badge">🔥 连续 ' + XD.studyLog.streakDays() + ' 天</span>' +
-                '<span class="badge">📖 已读 ' + XD.progress.count() + ' 页</span>' +
-                '<span class="badge">🏅 徽章 ' + achN + '/' + XD.ACHIEVEMENTS.length + ' 枚</span>';
-        }
-
-        // 进度环
-        var pct = XD.progress.overall();
-        var ring = document.getElementById('progRing');
-        if (ring) ring.style.setProperty('--p', pct);
-        var pt = document.getElementById('progTxt');
-        if (pt) pt.textContent = pct + '%';
-        var pf = document.getElementById('progFill');
-        if (pf) pf.style.width = pct + '%';
-
-        // 继续学习卡：取 xd_read_v1 里最近读过的页面
-        var cc = document.getElementById('continueCard');
-        if (cc) {
-            var all = XD.progress.all();
-            var bestF = '', bestAt = 0;
-            for (var k in all) {
-                if (Object.prototype.hasOwnProperty.call(all, k) && all[k] > bestAt) { bestAt = all[k]; bestF = k; }
-            }
-            if (!bestF) {
-                cc.innerHTML = '<div class="card cont-card"><b>⏩ 继续学习</b>' +
-                    '<span>还没有学习记录——从下面任意一个模块开始，点进去随便读一课就好。</span>' +
-                    '<a class="btn" href="A.html">从模块 A 开始 →</a></div>';
-            } else {
-                var lastTitle = bestF;
-                for (var j = 0; j < XD.PAGES.length; j++) {
-                    if (XD.PAGES[j].f === bestF) { lastTitle = XD.PAGES[j].t; break; }
-                }
-                var mid = bestF.replace(/\.html$/, ''), modTxt = '';
-                var topM = mid.charAt(0).toUpperCase();
-                var modN = XD.node(topM);
-                if (modN) modTxt = '模块' + topM + ' · ' + XD.escapeHtml(modN.n);
-                cc.innerHTML = '<div class="card cont-card"><b>⏩ 继续学习</b>' +
-                    '<span>上次学到：<b>' + XD.escapeHtml(lastTitle) + '</b>' +
-                    (modTxt ? '<br><span style="font-size:12px;">' + modTxt + '</span>' : '') + '</span>' +
-                    '<a class="btn" href="' + bestF + '">接着学 →</a></div>';
-            }
-        }
-
-        // 模块卡片（一级目录）
-        var grid = document.getElementById('modGrid');
-        if (!grid) return;
-        var html = '';
-        for (var i = 0; i < XD.TREE.length; i++) {
-            var mod = XD.TREE[i];
-            if ('SYS SITE'.indexOf(mod.id) >= 0 && mod.id.length > 1) continue;
-            var p = XD.progress.nodeProgress(mod);
-            html += '<a class="module-card" href="' + mod.f + '">' +
-                '<span class="tag">' + (p === 100 ? '✅' : p + '%') + '</span>' +
-                '<div class="mod-head"><span style="font-size:30px;">' + mod.icon + '</span><span class="mod-no">模块' + mod.id + '</span></div>' +
-                '<b>' + XD.escapeHtml(mod.n) + '</b>' +
-                '<span>' + XD.escapeHtml(mod.d || '') + '</span>' +
-                '<ul><li>' + (mod.children ? mod.children.length + ' 个子模块' : '') + ' · 共 ' + XD.leafCount(mod) + ' 页内容</li>' +
-                '<li>' + (p === 100 ? '<span class="done-flag">✅ 已完成</span>' : p > 0 ? '进行中 ' + p + '%' : '未开始') + '</li></ul>' +
-                '</a>';
-        }
-        grid.innerHTML = html;
-    });
-})();
-</script>
+<!-- 首页仪表盘渲染与搜索绑定已迁入 xd-features.js 的 XD.home（2026-10-17 诗意代码迁移） -->
 </body>
 </html>

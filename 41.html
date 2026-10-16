@@ -252,15 +252,18 @@ document.addEventListener('DOMContentLoaded', function () {
         for (var i = 0; i < RANGES.length; i++) if (RANGES[i][0] === r) return RANGES[i][1];
         return r;
     }
+    /* 时间档 → 起始时间戳：今天零点 / 本周一 / 本月 1 号 / 今年 1 月 1 日 */
+    function rangeStart(range, now) {
+        var d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (range === 'today') return d0.getTime();
+        if (range === 'week') return d0.getTime() - ((d0.getDay() + 6) % 7) * 86400000;
+        if (range === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        return new Date(now.getFullYear(), 0, 1).getTime();
+    }
+    /* 区间统计：学习次数 / 阅读页数 / 完成测验 / 学习天数 */
     function rangeStats(range) {
         var a = XD.studyLog.recent();
-        var now = new Date();
-        var d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        var start;
-        if (range === 'today') start = d0.getTime();
-        else if (range === 'week') { var dow = (d0.getDay() + 6) % 7; start = d0.getTime() - dow * 86400000; }
-        else if (range === 'month') start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        else start = new Date(now.getFullYear(), 0, 1).getTime();
+        var start = rangeStart(range, new Date());
         var times = 0, reads = {}, quizes = 0, days = {};
         for (var i = 0; i < a.length; i++) {
             var e = a[i];
@@ -280,6 +283,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '<div class="drop-metric"><span>完成测验</span><b data-v="0">' + s.quizes + '</b></div>' +
             '<div class="drop-metric"><span>学习天数</span><b data-v="0">' + s.days + '</b></div>';
     }
+    /* 数字滚动：从 data-v 旧值按 20 步左右滚到新值 */
     function rollNum(el, to) {
         var from = parseInt(el.getAttribute('data-v') || '0', 10);
         if (from === to) { el.textContent = to; return; }
@@ -313,6 +317,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         h += '</div></div><div class="drop-metrics" id="dropMetrics">' + metricHtml(curRange) + '</div>';
         box.innerHTML = h;
+
+        /* 水滴胶囊：展开时选项逐颗浮出（40 + idx*45 错峰），已展开则收起 */
         box.querySelector('.drop-pill').addEventListener('click', function () {
             var opts = document.getElementById('dropOpts');
             if (opts.style.display !== 'none') { collapseDrop(); return; }
@@ -322,6 +328,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 (function (el, idx) { setTimeout(function () { el.classList.add('show'); }, 40 + idx * 45); })(o[i], i);
             }
         });
+        /* 选项：切档 → 高亮 + 收拢水滴 + 指标数字滚动 */
         box.querySelectorAll('.drop-opt').forEach(function (opt) {
             opt.addEventListener('click', function () {
                 var nr = opt.getAttribute('data-range');
