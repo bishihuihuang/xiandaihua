@@ -1257,21 +1257,23 @@
             else if (tiltEl) { clearTilt(tiltEl); tiltEl = null; }
         }, true);
 
-        /* ---- 玻璃停靠栏：DOCK 数据 + 惰性构建 + 悬停提升 ---- */
+        /* ---- 玻璃停靠栏：DOCK 数据 + 惰性构建 + 悬停提升 ----
+         * v1.6：图标由 emoji 改为跨平台一致的文字徽标（s 字段），
+         * 渲染不再受操作系统 emoji 字体差异影响。 */
         var DOCK = [
-            { f: 'index.html', ic: '🏠', t: '首页' },
-            { f: '1.html', ic: '🗂️', t: '全站目录' },
-            { f: '41.html', ic: '📊', t: '学习仪表盘' },
-            { f: '42.html', ic: '🏅', t: '成就徽章墙' },
-            { f: '43.html', ic: '✏️', t: '测验中心' },
-            { f: 'SYS4.html', ic: '🧭', t: '场景速查' },
-            { f: 'SYS5.html', ic: '📖', t: '术语词典' },
-            { f: 'SYS6.html', ic: '🎓', t: '毕业证书' },
-            { f: null, ic: '🔍', t: '搜索' } /* 无页面 → 打开命令面板 */
+            { f: 'index.html', s: '首页', t: '首页' },
+            { f: '1.html', s: '目录', t: '全站目录' },
+            { f: '41.html', s: '仪表', t: '学习仪表盘' },
+            { f: '42.html', s: '徽章', t: '成就徽章墙' },
+            { f: '43.html', s: '测验', t: '测验中心' },
+            { f: 'SYS4.html', s: '场景', t: '场景速查' },
+            { f: 'SYS5.html', s: '词典', t: '术语词典' },
+            { f: 'SYS6.html', s: '证书', t: '毕业证书' },
+            { f: null, s: '搜索', t: '搜索' } /* 无页面 → 打开命令面板 */
         ];
         function dockItemHtml(d, cur) {
-            if (d.f) return '<a href="' + d.f + '" title="' + d.t + '"' + (d.f === cur ? ' class="on"' : '') + '>' + d.ic + '</a>';
-            return '<button type="button" class="dock-btn" data-dock="search" title="' + d.t + '">' + d.ic + '</button>';
+            if (d.f) return '<a href="' + d.f + '" title="' + d.t + '"' + (d.f === cur ? ' class="on"' : '') + '>' + d.s + '</a>';
+            return '<button type="button" class="dock-btn" data-dock="search" title="' + d.t + '">' + d.s + '</button>';
         }
         function bindSearchBtns(dock) {
             var btns = dock.querySelectorAll('.dock-btn[data-dock="search"]');
@@ -1325,8 +1327,10 @@
      * 滑块"像水一样"滑到当前模块；点击胶囊平滑滚动后延迟跳转。
      * ============================================================ */
     (function () {
-        var MOD_ICONS = { A: '📱', B: '💻', C: '🖥️', D: '⌨️', E: '🌐', F: '📄', G: '📷', H: '🎬', I: '🎵', J: '🛒', K: '🧮', L: '🗣️', M: '📞', N: '⚙️' };
-        var HOME_PILL = '<a class="mod-pill" href="index.html" data-mod="HOME" title="首页">🏠 首页</a>';
+        /* v1.6：模块图标改"金色圆点 + 字母"徽标；emoji 描绘交给正文内容，
+         * 导航条不再依赖系统 emoji 字体 → 跨平台完全一致 */
+        var HOME_PILL = '<a class="mod-pill" href="index.html" data-mod="HOME" title="首页"><i></i>首页</a>';
+        var MOD_DOT = '<i></i>';
         var JUMP_DELAY = 440; /* 点击后留给滑块动画的时间 */
 
         function modOf(page) {
@@ -1339,7 +1343,7 @@
         function pillHtml(id, cur) {
             var nd = XD.node(id);
             if (!nd) return '';
-            return '<a class="mod-pill' + (cur === id ? ' on' : '') + '" href="' + (nd.f || id + '.html') + '" data-mod="' + id + '" title="' + XD.escapeHtml(nd.n) + '">' + (MOD_ICONS[id] || '📁') + ' <b>' + id + '</b></a>';
+            return '<a class="mod-pill' + (cur === id ? ' on' : '') + '" href="' + (nd.f || id + '.html') + '" data-mod="' + id + '" title="' + XD.escapeHtml(nd.n) + '">' + MOD_DOT + '<b>' + id + '</b></a>';
         }
         /* 滑块贴住 .on 胶囊（左右各内缩 2px，避免遮住圆角） */
         function place(slider, pills) {

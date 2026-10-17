@@ -28,21 +28,23 @@
 
 <main>
     <div class="container">
-        <section class="hero">
-            <div class="hero-title">现代化·知识学习站</div>
-            <div class="hero-sub">从零开始，掌握这个时代的数字生存技能：电脑、网络、AI、Git 与网页开发</div>
-            <div class="hero-stats">
-                <span class="badge">🗂 14 大模块 · 子模块层层深入</span>
-                <span class="badge">📝 13 套测验 + 考后解析</span>
-                <span class="badge">⚡ 9 个互动工具</span>
-                <span class="badge">🏅 26 枚成就 · XP 升级</span>
-            </div>
-            <div class="today-stats" id="todayStats"><!-- JS 渲染今日统计 --></div>
-        </section>
+        <div class="hero-panel">
+            <section class="hero">
+                <div class="hero-title">现代化·知识学习站</div>
+                <div class="hero-sub">从零开始，掌握这个时代的数字生存技能：电脑、网络、AI、Git 与网页开发</div>
+                <div class="hero-stats">
+                    <span class="badge">🗂 14 大模块 · 子模块层层深入</span>
+                    <span class="badge">📝 13 套测验 + 考后解析</span>
+                    <span class="badge">⚡ 9 个互动工具</span>
+                    <span class="badge">🏅 26 枚成就 · XP 升级</span>
+                </div>
+                <div class="today-stats" id="todayStats"><!-- JS 渲染今日统计 --></div>
+            </section>
 
-        <div class="search-bar">
-            <input type="text" id="searchInput" placeholder="搜索课程，例如：DNS、快捷键、commit…（或按 / 键唤起）">
-            <button class="btn" id="searchBtn">🔍 搜索</button>
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="搜索课程，例如：DNS、快捷键、commit…（或按 / 键唤起）">
+                <button class="btn" id="searchBtn">🔍 搜索</button>
+            </div>
         </div>
 
         <section class="home-dash">

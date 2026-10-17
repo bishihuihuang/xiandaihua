@@ -32,36 +32,42 @@ button, .btn, [class*="btn"], .quiz-opt, .xd-theme-item { min-width: 44px; min-h
     .card:hover, .module-card:hover, button:hover, a:hover { transform: none !important; box-shadow: inherit !important; }
 }
 
-/* ---------- 主题变量体系（默认：深空流光） ---------- */
+/* ---------- 主题变量体系（默认：深空流光） ----------
+ * v1.6 全息玻璃：默认主题改为深浅不撕裂的统一深色体系——
+ * 卡片不再"近白贴片"，阴影三分层（--sh-1/2/3），
+ * 强调色收敛为"金→琥珀"双色（删除彩虹循环）。 */
 :root {
-    --bg: #0a0e27;
-    --bg-dim: #161a3d;
-    --card: rgba(245, 247, 255, .96);
-    --card-2: #ffffff;
-    --txt: #333333;
+    --bg: #070b16;
+    --bg-dim: #0e1428;
+    --card: rgba(20, 26, 46, .82);
+    --card-2: #171f38;
+    --txt: #e9eef9;
     --txt-on-bg: #ffffff;
     --dim: #8b93a7;
-    --line: #e8e8e8;
-    --gold: #ff6b6b;
-    --gold-2: #ffd700;
-    --gold-grad: linear-gradient(135deg, #ff6b6b, #ffa500, #ffd700, #ff6b6b);
-    --blue: #667eea;
-    --green: #11998e;
-    --purple: #764ba2;
-    --red: #ff6b6b;
-    --glow: #667eea;
-    --glow-2: #ffa500;
-    --glow-3: #38ef7d;
+    --line: #2a3557;
+    --gold: #f2c063;
+    --gold-2: #dd9f3e;
+    --gold-grad: linear-gradient(135deg, #f2c063, #dd9f3e);
+    --blue: #5b8def;
+    --green: #38c197;
+    --purple: #8f7bd0;
+    --red: #f07070;
+    --glow: #f2c063;
+    --glow-2: #ffd9a3;
+    --glow-3: #38c197;
     --radius: 16px;
-    --shadow: 0 25px 70px rgba(0, 0, 0, .35);
+    --sh-1: 0 1px 3px rgba(0, 0, 0, .16);
+    --sh-2: 0 2px 8px rgba(0, 0, 0, .20), 0 10px 28px rgba(0, 0, 0, .22);
+    --sh-3: 0 4px 14px rgba(0, 0, 0, .26), 0 18px 46px rgba(0, 0, 0, .32);
+    --shadow: var(--sh-2);
     --btn-txt: #ffffff;
-    --title-grad: linear-gradient(135deg, #ff6b6b, #ffa500, #ffd700, #ff6b6b);
-    --back-grad: linear-gradient(135deg, #11998e, #38ef7d);
-    --btn-grad: linear-gradient(135deg, #667eea, #764ba2);
-    --flow-grad: linear-gradient(125deg, #0a0e27, #161a3d, #1f1652, #331d6e, #1d1b4b, #0f122f, #241a54);
-    --scroll-thumb: linear-gradient(180deg, #667eea, #764ba2);
-    --code-bg: #1e2235;
-    --code-txt: #e8ecf5;
+    --title-grad: linear-gradient(135deg, #f2c063, #fff0cf);
+    --back-grad: linear-gradient(135deg, #38c197, #2aa884);
+    --btn-grad: linear-gradient(135deg, #5b6fd6, #4655ae);
+    --flow-grad: linear-gradient(125deg, #070b16, #0c1126, #111838, #141d40, #0e1328);
+    --scroll-thumb: linear-gradient(180deg, #f2c063, #9c7a2e);
+    --code-bg: #10162a;
+    --code-txt: #d7e0f5;
 }
 :root[data-theme="blue"] {
     --bg: #0b0e1a; --bg-dim: #141a2e;
@@ -800,4 +806,105 @@ a:focus-visible, button:focus-visible, .quiz-opt:focus-visible, .btn:focus-visib
 .drop-metric span { font-size: 12.5px; color: var(--dim); }
 @media (prefers-reduced-motion: reduce) {
     .drop-opt, .drop-pill, .zoom-stage, .mod-slider, .glass-dock a { transition: none !important; }
+}
+
+/* ============================================================
+ * v1.6 全息玻璃设计语言（Holo Glass · 2026-10-16）
+ * 把玻璃从"2D 贴片"升级为立体玻璃：
+ *   一、阴影三层 token（贴地/浮起/悬浮）替代一片式重阴影
+ *   二、卡片内高光 + 顶部漫反射，观感柔和有厚度
+ *   三、背景降速降饱和 + 噪点颗粒 + 散景光斑（仍是纯视觉）
+ *   四、字重节奏：阶梯清晰，标题弱化颜色、强化层次
+ *   五、表头去渐变：同色系底 + 金色底线
+ *   六、首页 hero 玻璃面板（hero + 搜索并入一板）
+ *   七、悬浮件归位：左下角欣赏/字号并排，右下纵向错开
+ *   八、全主题 --gold-grad 双色系收敛（删除彩虹循环）
+ * 纯视觉变更，零行为/文案改动；语义颜色（正确/错误/强调）不变。
+ * ============================================================ */
+
+/* ---- 一、shadow token 分层：贴地 / 浮起 / 悬浮 ---- */
+.card, .module-card { box-shadow: var(--sh-1); }
+.card:hover, .module-card:hover, .qc-card:hover, .scene-card:hover { box-shadow: var(--sh-3); }
+.container { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--sh-2); }
+.btn { box-shadow: var(--sh-1); }
+.btn:hover { box-shadow: var(--sh-2); }
+.lesson-nav a { box-shadow: var(--sh-1); }
+.lesson-nav a:hover { box-shadow: var(--sh-2); }
+.mod-badge, .badge { box-shadow: var(--sh-1); }
+.xd-toast { box-shadow: var(--sh-3); }
+
+/* ---- 二、立体玻璃：内高光 + 顶部漫反射（浅底主题自动收敛近零） ---- */
+.card, .module-card, .qc-card, .scene-card {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), var(--sh-1);
+    background-image: linear-gradient(160deg, rgba(255, 255, 255, .04), transparent 45%);
+}
+.card::before, .module-card::before, .qc-card::before, .scene-card::before {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(160deg, rgba(255, 255, 255, .05), transparent 38%);
+}
+
+/* ---- 三、背景降速降饱和 + 噪点颗粒 + 散景光斑 ---- */
+.bg-flow-1 { animation-duration: 55s; }
+.bg-flow-2 { animation-duration: 55s;
+    background: radial-gradient(ellipse at 30% 70%, rgba(255, 153, 102, .16), transparent 62%), radial-gradient(ellipse at 70% 30%, rgba(90, 180, 255, .15), transparent 52%); }
+.bg-flow-3 { animation-duration: 60s;
+    background: radial-gradient(circle at 60% 40%, rgba(190, 130, 255, .12), transparent 58%); }
+.orb { opacity: .6; box-shadow: none;
+    background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, .14), rgba(255, 255, 255, .05) 42%, transparent 74%); }
+.orb-1 { animation: orbFloat1 40s ease-in-out infinite, orbRotate 90s linear infinite; }
+.orb-2 { animation: orbFloat2 48s ease-in-out infinite, orbRotate 110s linear infinite; }
+.orb-3 { animation: orbFloat1 36s ease-in-out infinite reverse, orbRotate 80s linear infinite; }
+.orb-4 { animation: orbFloat2 44s ease-in-out infinite, orbRotate 100s linear infinite; }
+.orb-5 { animation: orbFloat1 30s ease-in-out infinite, orbRotate 70s linear infinite; }
+.bg-animation::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .045;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- 四、字重节奏：正文舒展，标题靠层级与字重区分 ---- */
+body { line-height: 1.8; }
+.lesson p { font-size: 16px; }
+.lesson ul, .lesson ol { font-size: 16px; }
+.lesson h2 { border-left-width: 3px; letter-spacing: .5px; }
+.lesson h3 { color: var(--txt); letter-spacing: .5px; }
+
+/* ---- 五、表头去渐变：同色系底 + 金色底线 ---- */
+.xd-table th { background: rgba(127, 127, 127, .10); color: var(--txt); border-bottom: 2px solid var(--gold); }
+
+/* ---- 六、首页 hero 玻璃面板（index：hero + 搜索并入一板） ---- */
+.hero-panel { position: relative; overflow: hidden; margin-bottom: 16px;
+    border: 1px solid var(--line); border-radius: calc(var(--radius) + 8px);
+    padding: 20px 20px 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), var(--sh-2); }
+.hero-panel::before { content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(160deg, rgba(255, 255, 255, .06), transparent 45%); }
+.hero-panel .hero { padding: 4px 0 2px; }
+.hero-panel .search-bar { margin: 16px 0 4px; }
+@media print {
+    .hero-panel { border: none; box-shadow: none; padding: 0; }
+}
+
+/* ---- 七、悬浮件归位：左下 欣赏/字号并排；右下 返回顶部/主题纵向错开 ---- */
+@media (min-width: 769px) { .xd-font-box { left: 76px; bottom: 20px; } }
+
+/* ---- 八、全主题双色系收敛：--gold-grad 一律"主题金→次金"两段 ---- */
+:root[data-theme="blue"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="gold"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="light"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="milk"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="guofeng"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="snowsun"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="cyber"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="aurora"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+:root[data-theme="custom"] { --gold-grad: linear-gradient(135deg, var(--gold), var(--gold-2)); }
+
+/* ---- 九、等级徽章对齐按钮渐变（浅底主题下保持可读） ---- */
+.lv-badge { background: var(--btn-grad); color: var(--btn-txt); box-shadow: var(--sh-1); }
+
+/* ---- 十、停靠栏文字徽标 + 窄屏适配 ---- */
+.glass-dock a, .glass-dock .dock-btn { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: rgba(255, 255, 255, .95); }
+.mod-pill i { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--glow); opacity: .9; }
+@media (max-width: 768px) {
+    .glass-dock a, .glass-dock .dock-btn { font-size: 12px; }
+    .hero-panel { padding: 16px 14px 10px; }
 }
